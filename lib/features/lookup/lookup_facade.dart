@@ -33,7 +33,7 @@ abstract class NmHttp {
 /// OPTIONAL extra: an [NmHttp] that can also fetch binary files (profile photos) with the
 /// device token. If the core client implements it, avatars are drawn; otherwise initials are.
 /// `path` is the absolute server path from the profile object, e.g.
-/// `/api/v1/mobile/lookups/<uid>/avatar/`.
+/// `/api/v1/mobile/lookups/UID/avatar/`.
 abstract interface class NmBinaryHttp {
   Future<Uint8List> getBytes(String path);
 }
@@ -98,7 +98,7 @@ class ProfileView {
   final String? username;
   final String? bio;
 
-  /// Path on the NM server (needs the device token), e.g. /api/v1/mobile/lookups/<uid>/avatar/
+  /// Path on the NM server (needs the device token), e.g. `/api/v1/mobile/lookups/UID/avatar/`
   final String? avatarPath;
 
   /// field name -> human source ("WhatsApp: push name")

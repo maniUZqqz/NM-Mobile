@@ -58,7 +58,7 @@ class LookupConfig {
   final String rules;
 }
 
-/// What an adapter (assets/lookup/<platform>.js) returned, parsed. Absent fields are null.
+/// What an adapter (a file named after the platform in assets/lookup/) returned, parsed. Absent fields are null.
 class AdapterResult {
   const AdapterResult({
     required this.status,
