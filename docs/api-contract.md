@@ -245,3 +245,81 @@ the customer; the floor price is an internal limit.
 ### POST contacts/sync/   (only if the user switched contact sync on in the app)
 `{ "contacts":[{"name":"...","numbers":["0912..."]}], "replace": true }` => `{"count": 42}`
 `DELETE contacts/sync/` removes everything this device synced.
+
+---
+## Live call registration (added)
+
+### POST calls/live/
+Call this as soon as the phone starts ringing (incoming) or dialling (outgoing), BEFORE the system call log has the row.
+```
+{ "number": "09121234567", "direction": "in|out", "started_at": "...", "client_id": null }
+```
+=> `{"uid":"<call uid>","created":true,"normalized":"98912...","caller":{"display":null,"known":false}}`
+The later `calls/log/` entry for the same call (same number, `started_at` within 5 minutes) UPDATES this row
+(sets `client_id`, `duration_s`, final direction) instead of creating a second one. This `uid` is what
+lookups reference as `call_uid`.
+
+---
+## Messenger profile lookup (owner-approved, tightly scoped)
+
+**Purpose: caller identification.** Who may be looked up: (1) a number from an ACTUAL call of this paired phone
+(registered via `calls/live/` or `calls/log/`, incoming or outgoing), or (2) one single manual lookup typed by a
+staff user. Never lists: there is no endpoint that accepts several numbers, and the server refuses a lookup that
+has no matching call / manual quota. The phone logs into the messengers itself (the OWNER logs in, in the in-app
+WebViews); NM never receives a messenger password or cookie. What may be stored is only what the platform shows a
+normal user: display name, username, profile photo, bio/about, and "is on the platform yes/no". Results are cached
+30 days; the user can press "refresh". Every platform has an on/off switch in the NM panel (default OFF) and a
+Persian warning that unofficial access can get the account restricted or banned.
+
+Platforms: `telegram` (done by the SERVER with the owner's linked account, official MTProto — `method:"server"`),
+`whatsapp`, `eitaa`, `bale`, `soroush`, `rubika` (done on the PHONE in WebViews — `method:"webview"`).
+
+### GET lookups/config/
+```
+{ "cache_days": 30,
+  "platforms": [ {"key":"telegram","label":"تلگرام","enabled":true,"method":"server","ready":true,
+                  "warning":"<Persian ban-risk warning>","left_today":42}, ... ],
+  "rules": "<Persian text of the rules, show it on the messengers screen>" }
+```
+`ready` is false when the platform is enabled but not usable yet (e.g. Telegram account not linked on the server).
+Platforms with `enabled:false` must not be looked up and their login screens may still be shown.
+
+### POST lookups/authorize/   (ALWAYS call before a lookup)
+```
+{ "number":"09121234567", "platform":"whatsapp", "trigger":"call|manual",
+  "call_uid":"<uid from calls/live or calls/log>", "refresh": false }
+```
+200 allowed: `{"allowed":true,"ticket":"<opaque, single use, valid 10 min>","method":"webview|server","normalized":"98912..."}`
+200 cached:  `{"allowed":false,"reason":"cached","cached":<profile object>}`  (a result younger than 30 days exists and `refresh` is false)
+Refusals (HTTP + error code): 403 `platform_disabled`; 403 `no_matching_call` (trigger=call without a call of this device
+for that number in the last 24 h); 403 `not_staff`; 409 `recently_refreshed` (refresh only after 60 minutes);
+429 `rate_limited` (per device/hour, per device/day, per platform/day, manual per user/day) with `Retry-After`;
+429 `bulk_blocked` (too many DIFFERENT numbers from one device in an hour); 400 `bad_number`.
+
+### POST lookups/    (webview platforms: the phone submits what it read)
+```
+{ "ticket":"...", "status":"found|not_found|hidden|login_required|error",
+  "on_platform": true,                         // true / false / null (unknown)
+  "display_name":"...", "username":"...", "bio":"...", "deep_link_id":"...",
+  "avatar_b64":"<base64 JPEG/PNG/WebP, <= 300 KB>" , "extra":{},
+  "field_sources":{"display_name":"WhatsApp: push name","bio":"WhatsApp: about","avatar":"WhatsApp: profile photo"},
+  "error":"" }
+```
+201 `{"uid","platform","status","looked_up_at", ...profile object...}`. A ticket works once. Submit only what the
+platform really returned; leave fields out (not empty strings) when absent. `login_required` is recorded without
+counting against the daily quota.
+
+### POST lookups/server/    (telegram: the server does the lookup)
+`{ "ticket":"..." }` => 201 profile object, or 503 `platform_not_ready` (account not linked / session expired /
+FloodWait — message in Persian).
+
+### Profile object
+```
+{ "uid","number","normalized","platform","label","method":"webview|server","status","on_platform",
+  "display_name","username","bio","deep_link_id","avatar_url":"/api/v1/mobile/lookups/<uid>/avatar/"|null,
+  "field_sources":{...},"looked_up_at":"...","age_days":3,"stale":false,"trigger":"call|manual" }
+```
+### GET lookups/?number=&platform=&limit=      timeline, newest first (history = one row per lookup)
+### GET lookups/latest/?number=      newest profile per platform: `{"number","normalized","profiles":[<profile object>]}`
+### GET lookups/<uid>/avatar/        image bytes (device token or staff JWT)
+`callerid/` additionally returns `"profiles": [<profile object>]` (latest per platform).
