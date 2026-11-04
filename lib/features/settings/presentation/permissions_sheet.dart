@@ -82,6 +82,14 @@ class _PermissionsSheetState extends State<PermissionsSheet>
       permission: Permission.phone,
     ),
     _PermItem(
+      icon: Icons.call_rounded,
+      title: 'دستیار تماس',
+      desc: 'برای دیدن شمارهٔ تماس‌گیرنده و ثبت تماس‌ها در NM (لاگ تماس)',
+      ok: _s.callLog,
+      required: false,
+      permission: Permission.phone,
+    ),
+    _PermItem(
       icon: Icons.notifications_active_rounded,
       title: 'اعلان‌ها',
       desc: 'برای نمایش اعلان ثابت سرویس پس‌زمینه',

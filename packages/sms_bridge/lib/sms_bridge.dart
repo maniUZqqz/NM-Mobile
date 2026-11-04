@@ -250,6 +250,99 @@ class DeviceState {
   final String network;
 }
 
+/// رویداد وضعیت تماس از گیرندهٔ بومی: ring | dial | answered | ended
+class CallEvent {
+  const CallEvent({
+    required this.type,
+    required this.number,
+    required this.direction,
+    required this.session,
+    required this.at,
+  });
+
+  factory CallEvent.fromMap(Map<String, dynamic> m) => CallEvent(
+        type: _s(m['type']),
+        number: _s(m['number']),
+        direction: _s(m['direction']),
+        session: _i(m['session'], 0),
+        at: DateTime.fromMillisecondsSinceEpoch(_i(m['at'], 0)),
+      );
+
+  final String type;
+  final String number;
+
+  /// in | out
+  final String direction;
+
+  /// شمارهٔ نوبتِ تماس (هر تماسِ تازه یک شماره)
+  final int session;
+  final DateTime at;
+}
+
+/// یک ردیف از لاگ تماس گوشی.
+class CallLogRow {
+  const CallLogRow({
+    required this.id,
+    required this.number,
+    required this.type,
+    required this.date,
+    required this.duration,
+    required this.name,
+  });
+
+  factory CallLogRow.fromMap(Map<String, dynamic> m) => CallLogRow(
+        id: _i(m['id'], 0),
+        number: _s(m['number']),
+        type: _i(m['type'], 0),
+        date: DateTime.fromMillisecondsSinceEpoch(_i(m['date'], 0)),
+        duration: _i(m['duration'], 0),
+        name: _s(m['name']),
+      );
+
+  final int id;
+  final String number;
+
+  /// ۱ ورودی، ۲ خروجی، ۳ بی‌پاسخ، ۵ ردشده
+  final int type;
+  final DateTime date;
+
+  /// ثانیه
+  final int duration;
+  final String name;
+}
+
+/// فایل صوتی داخل پوشهٔ انتخاب‌شده (Storage Access Framework).
+class RecordingFile {
+  const RecordingFile({
+    required this.uri,
+    required this.name,
+    required this.modified,
+    required this.size,
+    required this.mime,
+  });
+
+  factory RecordingFile.fromMap(Map<String, dynamic> m) => RecordingFile(
+        uri: _s(m['uri']),
+        name: _s(m['name']),
+        modified: DateTime.fromMillisecondsSinceEpoch(_i(m['modified'], 0)),
+        size: _i(m['size'], 0),
+        mime: _s(m['mime']),
+      );
+
+  final String uri;
+  final String name;
+  final DateTime modified;
+  final int size;
+  final String mime;
+}
+
+class PickedFolder {
+  const PickedFolder({required this.tree, required this.name});
+
+  final String tree;
+  final String name;
+}
+
 class PickedContactFile {
   const PickedContactFile({required this.path, required this.name});
 
@@ -387,6 +480,130 @@ class SmsBridge {
       return DeviceState.fromMap(m);
     } catch (_) {
       return const DeviceState();
+    }
+  }
+
+  /// رویدادهای تماس از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<CallEvent>> drainCallEvents() async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainCallEvents');
+      return _maps(raw).map(CallEvent.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<List<CallLogRow>> readCallLog({
+    required DateTime since,
+    int limit = 100,
+  }) async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('readCallLog', {
+        'since': since.millisecondsSinceEpoch,
+        'limit': limit,
+      });
+      return _maps(raw).map(CallLogRow.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> showCallNotification(String title, String text) async {
+    try {
+      await _ch.invokeMethod<bool>('showCallNotification', {
+        'title': title,
+        'text': text,
+      });
+    } catch (_) {}
+  }
+
+  static Future<void> cancelCallNotification() async {
+    try {
+      await _ch.invokeMethod<bool>('cancelCallNotification');
+    } catch (_) {}
+  }
+
+  /// انتخاب پوشهٔ ضبط‌های تماس با Storage Access Framework (مجوزِ دائمی).
+  static Future<PickedFolder?> pickRecordingsFolder() async {
+    final m = await _ch.invokeMapMethod<String, dynamic>('pickRecordingsFolder');
+    if (m == null) return null;
+    final tree = _s(m['tree']);
+    if (tree.isEmpty) return null;
+    return PickedFolder(tree: tree, name: _s(m['name']));
+  }
+
+  static Future<List<RecordingFile>> listRecordings({
+    required String tree,
+    required DateTime since,
+    int max = 300,
+  }) async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('listRecordings', {
+        'tree': tree,
+        'since': since.millisecondsSinceEpoch,
+        'max': max,
+      });
+      return _maps(raw).map(RecordingFile.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// فایل را برای آپلود در cache کپی می‌کند؛ خطا ⇒ null.
+  static Future<String?> copyToCache(String uri, String name) async {
+    try {
+      return await _ch.invokeMethod<String>('copyToCache', {
+        'uri': uri,
+        'name': name,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> deleteCacheFile(String path) async {
+    try {
+      await _ch.invokeMethod<bool>('deleteCacheFile', {'path': path});
+    } catch (_) {}
+  }
+
+  static Future<bool> isInstalled(String package) async {
+    try {
+      return (await _ch.invokeMethod<bool>('isInstalled', {
+            'package': package,
+          })) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// لینک را باز می‌کند؛ اگر [package] نصب باشد همان برنامه آن را می‌گیرد.
+  static Future<bool> openUrl(String url, {String? package}) async {
+    try {
+      return (await _ch.invokeMethod<bool>('openUrl', {
+            'url': url,
+            'package': package ?? '',
+          })) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// صفحهٔ «ذخیرهٔ مخاطب» اندروید را با نام و شماره باز می‌کند.
+  static Future<bool> insertContact({
+    String name = '',
+    required String number,
+  }) async {
+    try {
+      return (await _ch.invokeMethod<bool>('insertContact', {
+            'name': name,
+            'number': number,
+          })) ??
+          false;
+    } catch (_) {
+      return false;
     }
   }
 

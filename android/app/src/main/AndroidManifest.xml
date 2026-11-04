@@ -77,6 +77,16 @@
     </application>
 
     <queries>
+        <!-- برای اینکه بفهمیم کدام پیام‌رسان نصب است (دکمه‌های «باز کردن در …») -->
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="ir.eitaa.messenger" />
+        <package android:name="ir.nasim" />
+        <package android:name="mobi.mmdt.ottplus" />
+        <package android:name="app.rbmain.a" />
+        <package android:name="ir.resaneh1.iptv" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
