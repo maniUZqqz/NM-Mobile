@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:nm_mobile/core/theme/app_theme.dart';
 import 'package:nm_mobile/features/assistant/assistant_home_tab.dart';
 import 'package:nm_mobile/features/assistant/assistant_page.dart';
@@ -8,6 +9,8 @@ import 'package:nm_mobile/features/calls/data/call_state.dart';
 import 'package:nm_mobile/features/calls/presentation/calls_tab.dart';
 import 'package:nm_mobile/features/monitor/monitor_page.dart';
 import 'package:nm_mobile/features/more/more_tab.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:sms_bridge/sms_bridge.dart';
 
 /// قاب اصلی برنامه بعد از جفت‌سازی: وضعیت NM، تماس‌ها، دستیار، بیشتر.
 /// وقتی تماسی زنگ می‌خورد (یا می‌گیریم)، سرویس پس‌زمینه آن را در NM ثبت می‌کند و همین‌جا
@@ -30,6 +33,22 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 2), (_) => _checkActiveCall());
+    unawaited(_bootService());
+  }
+
+  /// بعد از جفت‌سازی: مجوزهای لازم را می‌خواهیم و سرویس پس‌زمینهٔ گیت‌وی را روشن می‌کنیم
+  /// (سرویس هم پیامک‌های NM را می‌فرستد و هم تماس‌ها را ثبت می‌کند).
+  Future<void> _bootService() async {
+    try {
+      final bs = await SmsBridge.status();
+      if (!bs.sendSms || !bs.callLog || !bs.notifications) {
+        await [Permission.sms, Permission.phone, Permission.notification].request();
+      }
+      final after = await SmsBridge.status();
+      if (!after.sendSms) return;
+      final svc = FlutterBackgroundService();
+      if (!await svc.isRunning()) await svc.startService();
+    } catch (_) {}
   }
 
   @override

@@ -2,7 +2,7 @@ name: nm_mobile
 description: "NM-Mobile: Android companion app of the NM platform (monitoring, SMS gateway, calls, in-call assistant)."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.1.0+1
 
 environment:
   sdk: ^3.9.2
