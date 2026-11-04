@@ -53,6 +53,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses > /dev/null || true
       - name: build APK
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
