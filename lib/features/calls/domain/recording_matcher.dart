@@ -92,7 +92,7 @@ MatchResult? bestMatch(RecordingCandidate file, List<MatchTarget> targets) {
         !file.modified.isAfter(end.add(const Duration(minutes: 3)));
     // ۲) زمانِ داخل نام ≈ شروع تماس (±۲ دقیقه)
     final nt = nameTime;
-    final nameDiff = nt == null ? null : nt.difference(start).inSeconds.abs();
+    final nameDiff = nt?.difference(start).inSeconds.abs();
     final byName = nameDiff != null && nameDiff <= 120;
     if (!byModified && !byName) continue;
     final tail = numberTail(t.number);

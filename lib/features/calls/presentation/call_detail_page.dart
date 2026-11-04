@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:nm_mobile/core/nm/nm_client.dart';
 import 'package:nm_mobile/core/nm/nm_session.dart';
 import 'package:nm_mobile/core/theme/app_theme.dart';
 import 'package:nm_mobile/features/assistant/assistant_models.dart';
