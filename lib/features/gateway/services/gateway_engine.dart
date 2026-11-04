@@ -1,42 +1,67 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:http/http.dart' as http;
-import 'package:sms_bridge/sms_bridge.dart';
 import 'package:nm_mobile/core/constants/app_constants.dart';
 import 'package:nm_mobile/core/errors/error_classifier.dart';
+import 'package:nm_mobile/core/nm/json_util.dart';
+import 'package:nm_mobile/core/nm/nm_client.dart';
+import 'package:nm_mobile/core/nm/nm_session.dart';
 import 'package:nm_mobile/core/storage/app_storage.dart';
+import 'package:nm_mobile/features/gateway/data/claim_store.dart';
+import 'package:nm_mobile/features/gateway/domain/sms_models.dart';
+import 'package:nm_mobile/features/gateway/services/incoming_uploader.dart';
+import 'package:nm_mobile/features/gateway/services/sms_pipeline.dart';
 import 'package:nm_mobile/features/logs/data/log_storage.dart';
 import 'package:nm_mobile/features/logs/domain/log_entry.dart';
+import 'package:nm_mobile/features/lookup/lookup_facade.dart';
 import 'package:nm_mobile/features/settings/domain/server_config.dart';
+import 'package:sms_bridge/sms_bridge.dart';
 
 class _Flow {
   _Flow(this.entry);
   final LogEntry entry;
-  int smsAttempts = 0;
-  int markAttempts = 0;
-  bool delivered = false;
-  DateTime? retryAt;
 
   FlowStep get receive => entry.steps[0];
   FlowStep get sms => entry.steps[1];
-  FlowStep get mark => entry.steps[2];
+  FlowStep get report => entry.steps[2];
 }
 
+String _kindFa(String kind) {
+  switch (kind) {
+    case 'otp':
+      return 'کد تأیید';
+    case 'marketing':
+      return 'تبلیغاتی';
+    default:
+      return 'اطلاع‌رسانی';
+  }
+}
+
+/// سرویس پس‌زمینهٔ گیت‌وی: پیامک‌های صف NM را می‌گیرد، با سیم‌کارت می‌فرستد و گزارش
+/// می‌کند. منطق اصلی در [SmsPipeline] است (قابل تست)؛ این کلاس فقط زمان‌بندی،
+/// heartbeat، صف‌های بومی و لاگ را اداره می‌کند.
 class GatewayEngine {
   GatewayEngine(this.service);
 
   final ServiceInstance service;
 
   final List<LogEntry> _logs = <LogEntry>[];
-  final Set<String> _sentIds = <String>{};
   final Map<String, _Flow> _flows = <String, _Flow>{};
+  final SessionStore _sessions = SessionStore();
+  final ClaimStore _claims = FileClaimStore();
+  final PendingIncomingStore _pending = FilePendingStore();
 
+  NmSessionData? _session;
+  NmClient? _client;
+  SmsPipeline? _pipeline;
+  IncomingUploader? _uploader;
+  NmSettings _settings = const NmSettings();
   ServerConfig _config = ServerConfig.defaults();
   List<SimCard> _sims = <SimCard>[];
+
   bool _stopped = false;
+  bool _reloadSession = false;
   String _conn = 'init';
   int _consecutive = 0;
   int _polls = 0;
@@ -44,7 +69,7 @@ class GatewayEngine {
   int _failed = 0;
   int? _latency;
   DateTime? _lastOk;
-  bool _idleLogged = false;
+  DateTime? _lastHeartbeat;
   String _lastNotif = '';
 
   Future<void> start() async {
@@ -55,11 +80,13 @@ class GatewayEngine {
       _logs.clear();
       _flows.clear();
     });
+    service.on('sessionChanged').listen((_) => _reloadSession = true);
 
     // جلوگیری از خوابیدن CPU/Wi-Fi وقتی برنامه بسته است
     unawaited(SmsBridge.acquireLocks());
 
     _config = await ConfigStorage.load();
+    await _loadSession();
 
     final history = await LogStorage.load();
     final changed = LogStorage.closeStale(history);
@@ -74,17 +101,53 @@ class GatewayEngine {
         level: LogLevel.success,
         title: 'سرویس شروع شد',
         meta: {
-          'سرور': _config.baseUrl,
-          'دریافت کد': _config.otpPath,
-          'ثبت ارسال': _config.markSentPath,
+          'سرور NM': _session?.serverUrl ?? 'جفت نشده',
+          'دستگاه': _session?.deviceName ?? '-',
           'سیم‌کارت': _config.simTitle,
-          'بازه بررسی': 'هر ۲ ثانیه',
         },
       ),
     );
     _emitStatus();
     unawaited(_logEnvironment());
     unawaited(_loop());
+  }
+
+  Future<void> _loadSession() async {
+    final d = await _sessions.load();
+    _session = d;
+    _lastHeartbeat = null;
+    if (d == null) {
+      _client = null;
+      _pipeline = null;
+      _uploader = null;
+      return;
+    }
+    final c = NmClient(baseUrl: d.serverUrl, token: d.deviceToken);
+    _client = c;
+    _pipeline = SmsPipeline(
+      http: c,
+      sender: _send,
+      store: _claims,
+      pickSub: _pickSub,
+      onEvent: _onPipelineEvent,
+    );
+    _uploader = IncomingUploader(http: c, store: _pending);
+  }
+
+  Future<SmsSendResult> _send({
+    required String to,
+    required String message,
+    required int subId,
+    required String? ref,
+    required bool delivery,
+  }) {
+    return SmsBridge.sendSms(
+      to: to,
+      message: message,
+      subId: subId,
+      ref: ref,
+      delivery: delivery,
+    );
   }
 
   Future<void> _logEnvironment() async {
@@ -96,7 +159,7 @@ class GatewayEngine {
             kind: LogKind.system,
             level: LogLevel.error,
             title: 'افزونه بومی پیامک در سرویس در دسترس نیست',
-            hint: 'پروژه را flutter clean کنید و دوباره build بگیرید.',
+            hint: 'برنامه را دوباره نصب کنید.',
             dedupeKey: 'env-plugin',
           ),
         );
@@ -119,7 +182,7 @@ class GatewayEngine {
             kind: LogKind.system,
             level: LogLevel.error,
             title: 'مجوز ارسال پیامک داده نشده',
-            hint: 'برنامه را باز کنید و از «بررسی مجوزها» آن را فعال کنید.',
+            hint: 'برنامه را باز کنید و از «مجوزهای گوشی» آن را فعال کنید.',
             dedupeKey: 'env-sms',
           ),
         );
@@ -213,7 +276,7 @@ class GatewayEngine {
 
     if (s is AndroidServiceInstance && text != _lastNotif) {
       _lastNotif = text;
-      s.setForegroundNotificationInfo(title: 'گیت‌وی پیامک', content: text);
+      s.setForegroundNotificationInfo(title: 'گیت‌وی NM', content: text);
     }
   }
 
@@ -229,69 +292,24 @@ class GatewayEngine {
     });
   }
 
-  int get _nextDelaySecs =>
-      _consecutive == 0 ? 2 : min(2 + _consecutive * 2, 10);
-
-  String _host(Uri u) => u.hasPort ? '${u.host}:${u.port}' : u.host;
-
-  String _snippet(List<int> bytes, [int max = 240]) {
-    final s = utf8
-        .decode(bytes, allowMalformed: true)
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    if (s.isEmpty) return '(بدنه خالی)';
-    return s.length > max ? '${s.substring(0, max)}…' : s;
+  String _host(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null || u.host.isEmpty) return url;
+    return u.hasPort ? '${u.host}:${u.port}' : u.host;
   }
 
   void _onConfigUpdate(Map<String, dynamic>? event) {
     if (event == null) return;
-
     try {
       final old = _config;
-
       _config = ServerConfig.fromJson(Map<String, dynamic>.from(event));
-
-      final serverChanged =
-          old.baseUrl != _config.baseUrl ||
-          old.otpPath != _config.otpPath ||
-          old.markSentPath != _config.markSentPath;
-      final smsChanged =
-          old.smsTemplate != _config.smsTemplate ||
-          old.simSubscriptionId != _config.simSubscriptionId;
-
-      if (serverChanged) {
-        _conn = 'init';
-        _consecutive = 0;
-        _idleLogged = false;
-
-        _add(
-          LogEntry(
-            kind: LogKind.system,
-            title: 'تنظیمات سرور به‌روز شد',
-            meta: {
-              'سرور قبلی': old.baseUrl,
-              'سرور جدید': _config.baseUrl,
-              'دریافت کد': _config.otpPath,
-              'ثبت ارسال': _config.markSentPath,
-            },
-          ),
-        );
-      }
-
-      if (smsChanged) {
-        // پیامک‌هایی که قبلاً شکست خورده‌اند بلافاصله با تنظیمات جدید دوباره امتحان شوند
-        for (final f in _flows.values) {
-          f.retryAt = null;
-        }
+      if (old.simSubscriptionId != _config.simSubscriptionId ||
+          old.simSlot != _config.simSlot) {
         _add(
           LogEntry(
             kind: LogKind.system,
             title: 'تنظیمات پیامک به‌روز شد',
-            meta: {
-              'سیم‌کارت': _config.simTitle,
-              'نمونه پیامک': _config.previewMessage,
-            },
+            meta: {'سیم‌کارت': _config.simTitle},
           ),
         );
       }
@@ -329,11 +347,15 @@ class GatewayEngine {
     service.stopSelf();
   }
 
+  // ── حلقهٔ اصلی ──────────────────────────────────────────────────────────────
+
   Future<void> _loop() async {
     while (!_stopped) {
+      var delay = const Duration(seconds: 5);
       try {
-        await _pollOnce();
+        delay = await _cycle();
       } catch (e) {
+        delay = const Duration(seconds: 10);
         _add(
           LogEntry(
             kind: LogKind.system,
@@ -347,348 +369,348 @@ class GatewayEngine {
       }
 
       if (_stopped) break;
-
       _emitStatus();
-
-      await Future<void>.delayed(Duration(seconds: _nextDelaySecs));
+      await Future<void>.delayed(delay);
     }
   }
 
-  Future<void> _pollOnce() async {
+  Duration get _backoff => Duration(seconds: min(2 + _consecutive * 2, 30));
+
+  Future<Duration> _cycle() async {
+    if (_reloadSession) {
+      _reloadSession = false;
+      await _loadSession();
+      if (_session != null) {
+        _conn = 'init';
+        _consecutive = 0;
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.success,
+            title: 'اتصال به NM برقرار شد',
+            meta: {
+              'سرور': _host(_session!.serverUrl),
+              'دستگاه': _session!.deviceName,
+            },
+          ),
+        );
+      }
+    }
+
+    final p = _pipeline;
+    final c = _client;
+    if (p == null || c == null) {
+      if (_conn != 'unpaired') {
+        _conn = 'unpaired';
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.warning,
+            title: 'این گوشی هنوز به NM جفت نشده است',
+            hint: 'برنامه را باز کنید و از صفحهٔ «اتصال به NM» جفت‌سازی کنید.',
+            dedupeKey: 'unpaired',
+          ),
+        );
+      }
+      return const Duration(seconds: 5);
+    }
+
     _polls++;
-
-    final uri = _config.otpUri;
     final sw = Stopwatch()..start();
-
-    http.Response res;
-
     try {
-      res = await http.get(uri).timeout(const Duration(seconds: 8));
-    } catch (e) {
+      await _heartbeatIfDue(c);
+      await _nativeQueues(p);
+      final res = await p.tick(
+        max: _settings.claimBatch,
+        simSlot: _config.simSlot >= 0 ? _config.simSlot : null,
+      );
       sw.stop();
-      _onConnectionFailure(e, uri, sw.elapsedMilliseconds);
-      return;
-    }
+      _latency = sw.elapsedMilliseconds;
+      _onConnected();
 
-    sw.stop();
-
-    final ms = sw.elapsedMilliseconds;
-    _latency = ms;
-
-    if (res.statusCode != 200) {
-      _onHttpError(res, uri, ms);
-      return;
-    }
-
-    List<dynamic> items;
-
-    try {
-      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
-
-      if (decoded is! List) {
-        throw const FormatException('پاسخ سرور باید یک لیست JSON باشد');
+      if (res.paused) {
+        _conn = 'paused';
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.warning,
+            title: 'صف پیامک در NM متوقف است',
+            hint: 'از پنل NM یا صفحهٔ «وضعیت NM» می‌توانید دوباره روشنش کنید.',
+            dedupeKey: 'paused',
+          ),
+        );
+        return const Duration(seconds: 15);
       }
-
-      items = decoded;
-    } catch (e) {
-      _onBadPayload(e, res, uri, ms);
-      return;
-    }
-
-    final recovered = _onConnected(uri, ms);
-
-    if (items.isEmpty) {
-      if (!_idleLogged) {
-        if (!recovered) {
-          _add(
-            LogEntry(
-              kind: LogKind.response,
-              title: 'صف سرور خالی است — منتظر شماره جدید',
-              meta: {
-                'سرور': _host(uri),
-                'درخواست': 'GET $uri',
-                'وضعیت': '200 OK',
-                'زمان': '${ms}ms',
-              },
-              dedupeKey: 'idle',
-            ),
-          );
-        }
-
-        _idleLogged = true;
+      if (res.limited != null) {
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.warning,
+            title: res.limited == 'day'
+                ? 'سقف ارسال روزانهٔ این گوشی پر شد'
+                : 'سقف ارسال ساعتی این گوشی پر شد',
+            hint: 'ارسال بعدی خودکار ادامه پیدا می‌کند.',
+            dedupeKey: 'limited:${res.limited}',
+          ),
+        );
+        return Duration(seconds: max(res.retryAfterS, 30));
       }
-    } else {
-      _idleLogged = false;
-    }
-
-    final currentIds = <String>{};
-
-    for (final raw in items) {
-      if (raw is Map && raw['id'] != null) {
-        currentIds.add(raw['id'].toString());
-      }
-    }
-
-    for (final raw in items) {
-      if (_stopped) return;
-
-      await _processItem(raw, uri, ms);
-    }
-
-    for (final entry in _flows.entries.toList()) {
-      if (currentIds.contains(entry.key)) continue;
-
-      final f = entry.value;
-      var changed = false;
-
-      for (final s in f.entry.steps) {
-        if (s.state == StepState.pending || s.state == StepState.fail) {
-          s.update(
-            StepState.warn,
-            detail: '${s.detail ?? s.label} · سپس از صف سرور حذف شد',
-          );
-          changed = true;
-        }
-      }
-
-      _flows.remove(entry.key);
-
-      if (changed) {
-        _touch(f.entry);
-      }
+      if (res.messages.isNotEmpty) return const Duration(seconds: 1);
+      return Duration(seconds: _settings.pollIntervalS);
+    } on NmHttpException catch (e) {
+      sw.stop();
+      await _onApiError(e);
+      return _conn == 'revoked' ? const Duration(seconds: 5) : _backoff;
     }
   }
 
-  bool _onConnected(Uri uri, int ms) {
+  Future<void> _heartbeatIfDue(NmClient c) async {
+    final now = DateTime.now();
+    final last = _lastHeartbeat;
+    if (last != null && now.difference(last) < const Duration(seconds: 60)) {
+      return;
+    }
+    final st = await SmsBridge.deviceState();
+    final bs = await SmsBridge.status();
+    final q = await SmsBridge.getSimCards();
+    if (q.permissionGranted) _sims = q.sims;
+    final res = asMap(
+      await c.postJson('heartbeat/', {
+        'battery_percent': st.battery,
+        'charging': st.charging,
+        'network': st.network,
+        'sims': [
+          for (final s in q.sims)
+            {
+              'slot': s.slot,
+              'subscription_id': s.subscriptionId,
+              'carrier': s.carrier,
+              'label': s.title,
+            },
+        ],
+        'sms_ready': bs.sendSms && bs.telephony && !bs.airplane,
+        'app_version': kAppVersion,
+      }),
+    );
+    _lastHeartbeat = now;
+    final s = res['settings'];
+    if (s is Map) _settings = NmSettings.fromJson(asMap(s));
+  }
+
+  /// پیامک‌های دریافتی و گزارش‌های تحویل که گیرنده‌های بومی در صف گذاشته‌اند.
+  Future<void> _nativeQueues(SmsPipeline p) async {
+    final up = _uploader;
+    if (up != null) {
+      final incoming = await SmsBridge.drainIncoming();
+      final r = await up.process(
+        incoming,
+        forward: _settings.forwardIncomingSms,
+      );
+      if (r.optOutsAdded > 0) {
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.info,
+            title: 'درخواست «لغو» از مشتری ثبت شد',
+            detail: '${r.optOutsAdded} شماره به فهرست «دیگر پیام نده» رفت.',
+          ),
+        );
+      }
+    }
+    final deliveries = await SmsBridge.drainDelivery();
+    if (deliveries.isNotEmpty) await p.handleDelivery(deliveries);
+  }
+
+  // ── وضعیت اتصال ─────────────────────────────────────────────────────────────
+
+  void _onConnected() {
     final was = _conn;
-
     _lastOk = DateTime.now();
-
     if (was == 'ok') {
       _consecutive = 0;
-      return false;
+      return;
     }
-
     final tries = _consecutive;
-
     _consecutive = 0;
     _conn = 'ok';
-
     _add(
       LogEntry(
         kind: LogKind.response,
         level: LogLevel.success,
         title: was == 'init'
-            ? 'اتصال به سرور برقرار شد'
-            : 'ارتباط با سرور دوباره برقرار شد',
+            ? 'اتصال به NM برقرار شد'
+            : 'ارتباط با NM دوباره برقرار شد',
         detail: tries > 0 ? 'پس از $tries تلاش ناموفق' : null,
-        meta: {
-          'سرور': _host(uri),
-          'درخواست': 'GET $uri',
-          'وضعیت': '200 OK',
-          'زمان': '${ms}ms',
-        },
-      ),
-    );
-
-    return true;
-  }
-
-  void _onConnectionFailure(Object e, Uri uri, int ms) {
-    _consecutive++;
-
-    if (_conn != 'down') {
-      _failed++;
-    }
-
-    _conn = 'down';
-    _idleLogged = false;
-
-    final info = ErrorClassifier.network(e);
-
-    _add(
-      LogEntry(
-        kind: LogKind.request,
-        level: LogLevel.error,
-        title: info.title,
-        hint: info.hint,
-        tech: info.technical,
-        dedupeKey: 'conn:${info.title}',
-        meta: {
-          'سرور': _host(uri),
-          'درخواست': 'GET $uri',
-          'پاسخ': 'دریافت نشد',
-          'زمان سپری‌شده': '${ms}ms',
-          'تلاش متوالی': '$_consecutive',
-          'تلاش بعدی': '$_nextDelaySecs ثانیه دیگر',
-        },
+        meta: {'سرور': _host(_session?.serverUrl ?? '')},
       ),
     );
   }
 
-  void _onHttpError(http.Response res, Uri uri, int ms) {
-    _consecutive++;
-
-    if (_conn != 'error') {
-      _failed++;
-    }
-
-    _conn = 'error';
-    _idleLogged = false;
-
-    final info = ErrorClassifier.httpStatus(res.statusCode);
-
-    _add(
-      LogEntry(
-        kind: LogKind.response,
-        level: LogLevel.error,
-        title: info.title,
-        detail: 'سرور پاسخ ${res.statusCode} ${res.reasonPhrase ?? ''} برگرداند'
-            .trim(),
-        hint: info.hint,
-        tech:
-            'GET $uri\n${res.statusCode} ${res.reasonPhrase ?? ''}\n${_snippet(res.bodyBytes)}',
-        dedupeKey: 'http:${res.statusCode}',
-        meta: {
-          'سرور': _host(uri),
-          'درخواست': 'GET $uri',
-          'وضعیت': '${res.statusCode}',
-          'زمان': '${ms}ms',
-          'تلاش متوالی': '$_consecutive',
-          'تلاش بعدی': '$_nextDelaySecs ثانیه دیگر',
-        },
-      ),
-    );
-  }
-
-  void _onBadPayload(Object e, http.Response res, Uri uri, int ms) {
-    _consecutive++;
-
-    if (_conn != 'error') {
-      _failed++;
-    }
-
-    _conn = 'error';
-    _idleLogged = false;
-
-    _add(
-      LogEntry(
-        kind: LogKind.response,
-        level: LogLevel.error,
-        title: 'پاسخ سرور قابل خواندن نیست',
-        hint:
-            'مسیر دریافت کد درست است؟ سرور باید لیست JSON شامل id، phone و code برگرداند.',
-        tech:
-            'GET $uri\n200 · ${ms}ms\n${_snippet(res.bodyBytes)}\n${ErrorClassifier.describe(e)}',
-        dedupeKey: 'payload',
-        meta: {
-          'سرور': _host(uri),
-          'درخواست': 'GET $uri',
-          'وضعیت': '200 (قالب نامعتبر)',
-          'تلاش بعدی': '$_nextDelaySecs ثانیه دیگر',
-        },
-      ),
-    );
-  }
-
-  // ── per-item pipeline ──────────────────────────────────────────────────────
-
-  void _badItem(String raw) {
-    _add(
-      LogEntry(
-        kind: LogKind.response,
-        level: LogLevel.error,
-        title: 'آیتم ناقص از سرور دریافت شد',
-        hint: 'هر آیتم باید شامل id، phone و code باشد.',
-        tech: raw.length > 300 ? '${raw.substring(0, 300)}…' : raw,
-        dedupeKey: 'bad-item',
-      ),
-    );
-  }
-
-  Future<void> _processItem(dynamic raw, Uri pollUri, int pollMs) async {
-    final Map<String, dynamic> item;
-
-    try {
-      item = Map<String, dynamic>.from(raw as Map);
-    } catch (_) {
-      _badItem(raw.toString());
-      return;
-    }
-
-    final id = item['id']?.toString();
-    final phone = item['phone']?.toString().trim();
-    final code = item['code']?.toString().trim();
-
-    if (id == null ||
-        id.isEmpty ||
-        phone == null ||
-        phone.isEmpty ||
-        code == null ||
-        code.isEmpty) {
-      _badItem(jsonEncode(item));
-      return;
-    }
-
-    var flow = _flows[id];
-
-    if (flow == null) {
-      flow = _Flow(
+  Future<void> _onApiError(NmHttpException e) async {
+    if (e.status == 401) {
+      _conn = 'revoked';
+      _add(
         LogEntry(
-          kind: LogKind.flow,
-          title: 'کد تایید برای $phone',
-          meta: {
-            'شناسه': id,
-            'شماره': phone,
-            'کد': '•' * code.length,
-            'سیم‌کارت': _config.simTitle,
-            'سرور': _host(pollUri),
-          },
-          steps: [
-            FlowStep(
-              'دریافت از سرور',
-              state: StepState.ok,
-              detail: 'پاسخ 200 در ${pollMs}ms',
-              tech: 'GET $pollUri',
-            ),
-            FlowStep('ارسال پیامک'),
-            FlowStep('ثبت در سرور'),
-          ],
+          kind: LogKind.system,
+          level: LogLevel.error,
+          title: 'این گوشی از NM لغو شد',
+          hint: 'توکن دستگاه از پنل NM لغو شده است. دوباره جفت‌سازی کنید.',
+          dedupeKey: 'revoked',
         ),
       );
-
-      _flows[id] = flow;
-      _add(flow.entry);
+      await _sessions.clear();
+      _session = null;
+      _client = null;
+      _pipeline = null;
+      _uploader = null;
+      service.invoke('sessionRevoked');
+      return;
     }
-
-    if (!_sentIds.contains(id)) {
-      final at = flow.retryAt;
-
-      if (at != null && DateTime.now().isBefore(at)) {
-        return;
-      }
-
-      await _sendSms(flow, id, phone, code);
-
-      if (!_sentIds.contains(id)) {
-        return;
-      }
-    } else if (flow.sms.state == StepState.pending) {
-      flow.sms.update(
-        StepState.warn,
-        detail: 'قبلاً ارسال شده بود؛ پیامک تکراری فرستاده نشد',
-      );
-
-      _touch(flow.entry);
+    _consecutive++;
+    if (e.status == 0) {
+      if (_conn != 'down') _failed++;
+      _conn = 'down';
+    } else {
+      if (_conn != 'error') _failed++;
+      _conn = 'error';
     }
-
-    await _markSent(flow, id);
+    final info = e.status == 0
+        ? ErrorInfo('NM در دسترس نیست', e.message, e.toString())
+        : ErrorClassifier.httpStatus(e.status);
+    _add(
+      LogEntry(
+        kind: e.status == 0 ? LogKind.request : LogKind.response,
+        level: LogLevel.error,
+        title: info.title,
+        detail: e.message,
+        hint: info.hint,
+        tech: e.toString(),
+        dedupeKey: 'api:${e.status}:${e.code}',
+        meta: {
+          'سرور': _host(_session?.serverUrl ?? ''),
+          'تلاش متوالی': '$_consecutive',
+          'تلاش بعدی': '${_backoff.inSeconds} ثانیه دیگر',
+        },
+      ),
+    );
   }
 
-  /// subId نهایی را تعیین می‌کند و در صورت لزوم (تغییر شناسه‌ی سیم / نبودن پیش‌فرض) لاگ می‌گذارد.
-  Future<int> _resolveSubId() async {
+  // ── رویدادهای خط لوله ⇒ لاگ ─────────────────────────────────────────────────
+
+  String _short(String uid) => uid.length > 8 ? uid.substring(0, 8) : uid;
+
+  void _onPipelineEvent(PipelineEvent e) {
+    final m = e.sms;
+    switch (e.type) {
+      case 'claimed':
+        if (m == null || _flows.containsKey(m.uid)) return;
+        final flow = _Flow(
+          LogEntry(
+            kind: LogKind.flow,
+            title: 'پیامک برای ${m.to}',
+            meta: {
+              'شناسه': _short(m.uid),
+              'شماره': m.to,
+              'نوع': _kindFa(m.kind),
+              'سیم‌کارت': m.simSlot == null
+                  ? _config.simTitle
+                  : 'SIM ${m.simSlot! + 1}',
+              'سرور': _host(_session?.serverUrl ?? ''),
+            },
+            steps: [
+              FlowStep(
+                'دریافت از NM',
+                state: StepState.ok,
+                detail: 'گرفته شد${m.attempt > 1 ? ' (تلاش ${m.attempt})' : ''}',
+              ),
+              FlowStep('ارسال پیامک'),
+              FlowStep('گزارش به NM'),
+            ],
+          ),
+        );
+        _flows[m.uid] = flow;
+        _add(flow.entry);
+        break;
+      case 'sending':
+        final f = m == null ? null : _flows[m.uid];
+        if (f == null) return;
+        f.sms.update(StepState.pending, detail: 'در حال ارسال…');
+        _touch(f.entry);
+        break;
+      case 'sent':
+        final f = m == null ? null : _flows[m.uid];
+        if (f == null || m == null) return;
+        _sent++;
+        final r = e.result;
+        final simName = r == null ? '' : simNameOf(_sims, r.usedSubId);
+        f.sms.update(
+          StepState.ok,
+          detail:
+              'از $simName ارسال شد${r != null && r.parts > 1 ? ' (${r.parts} بخش)' : ''}',
+          tech: r == null
+              ? null
+              : 'subId=${r.usedSubId} · parts=${r.partsOk}/${r.parts}',
+        );
+        if (simName.isNotEmpty) f.entry.meta['سیم‌کارت'] = simName;
+        _touch(f.entry);
+        break;
+      case 'failed':
+        final f = m == null ? null : _flows[m.uid];
+        if (f == null) return;
+        _failed++;
+        final r = e.result;
+        final info = r == null ? null : ErrorClassifier.smsResult(r);
+        f.sms.update(
+          StepState.fail,
+          detail: info?.title ?? e.detail,
+          hint: info?.hint,
+          tech: info?.technical,
+        );
+        _touch(f.entry);
+        break;
+      case 'duplicate':
+        final f = m == null ? null : _flows[m.uid];
+        if (f == null) return;
+        f.sms.update(StepState.warn, detail: e.detail);
+        _touch(f.entry);
+        break;
+      case 'reported':
+        final f = _flows[e.uid];
+        if (f == null) return;
+        final rejected = e.detail.startsWith('سرور نپذیرفت');
+        f.report.update(
+          rejected ? StepState.warn : StepState.ok,
+          detail: rejected ? e.detail : 'به NM گزارش شد (${e.detail})',
+        );
+        _flows.remove(e.uid);
+        _touch(f.entry);
+        break;
+      case 'report_failed':
+        final f = _flows[e.uid];
+        if (f == null) return;
+        f.report.update(
+          StepState.fail,
+          detail: 'گزارش به NM نرسید',
+          hint: 'پیامک ارسال شده؛ گزارش در بررسی بعدی خودکار تکرار می‌شود.',
+          tech: e.detail,
+        );
+        _touch(f.entry);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /// subId نهایی را تعیین می‌کند (سیم انتخابی کاربر، سیم اسلات خواسته‌شدهٔ NM، یا پیش‌فرض گوشی).
+  Future<int> _pickSub(int? simSlot) async {
     final q = await SmsBridge.getSimCards();
     if (q.permissionGranted) _sims = q.sims;
+
+    if (simSlot != null && q.permissionGranted) {
+      for (final s in q.sims) {
+        if (s.slot == simSlot) return s.subscriptionId;
+      }
+    }
 
     final picked = pickSubId(_config, q);
 
@@ -731,210 +753,5 @@ class GatewayEngine {
     }
 
     return picked;
-  }
-
-  Future<void> _sendSms(
-    _Flow flow,
-    String id,
-    String phone,
-    String code,
-  ) async {
-    final step = flow.sms;
-
-    flow.smsAttempts++;
-    final attempt = flow.smsAttempts;
-
-    if (step.state == StepState.pending) {
-      step.update(StepState.pending, detail: 'در حال ارسال…');
-
-      _touch(flow.entry);
-    }
-
-    if (RegExp(r'\d').allMatches(phone).length < 5) {
-      _smsFailed(
-        flow,
-        step,
-        'شماره نامعتبر است',
-        'فرمت شماره گیرنده را در سرور بررسی کنید.',
-        'phone="$phone"',
-        permanent: true,
-      );
-      return;
-    }
-
-    try {
-      final subId = await _resolveSubId();
-      final message = _config.buildMessage(code);
-
-      final r = await SmsBridge.sendSms(
-        to: phone,
-        message: message,
-        subId: subId,
-      );
-
-      if (r.ok) {
-        _sentIds.add(id);
-
-        if (_sentIds.length > 500) {
-          _sentIds.remove(_sentIds.first);
-        }
-
-        _sent++;
-        flow.retryAt = null;
-
-        final simName = simNameOf(_sims, r.usedSubId);
-
-        step.update(
-          StepState.ok,
-          detail:
-              'از $simName ارسال شد${r.parts > 1 ? ' (${r.parts} بخش)' : ''}',
-          tech:
-              'subId=${r.usedSubId} · parts=${r.partsOk}/${r.parts}'
-              '${attempt > 1 ? ' · موفق در تلاش $attempt' : ''}',
-        );
-
-        // اگر نام سیم در لاگ اصلی هم نمایش داده شود، ردیابی راحت‌تر است
-        flow.entry.meta['سیم‌کارت'] = simName;
-
-        _touch(flow.entry);
-      } else {
-        final info = ErrorClassifier.smsResult(r);
-
-        _smsFailed(
-          flow,
-          step,
-          info.title,
-          info.hint,
-          info.technical,
-          permanent: info.permanent,
-        );
-      }
-    } catch (e) {
-      final info = ErrorClassifier.sms(e);
-
-      _smsFailed(
-        flow,
-        step,
-        info.title,
-        info.hint,
-        info.technical,
-        permanent: info.permanent,
-      );
-    }
-  }
-
-  void _smsFailed(
-    _Flow flow,
-    FlowStep step,
-    String title,
-    String hint,
-    String tech, {
-    bool permanent = false,
-  }) {
-    final wait = permanent
-        ? 60
-        : min(60, 2 * (1 << min(flow.smsAttempts - 1, 5)));
-
-    flow.retryAt = DateTime.now().add(Duration(seconds: wait));
-
-    if (step.state != StepState.fail) {
-      _failed++;
-    }
-
-    step.update(
-      StepState.fail,
-      detail: '$title · تلاش ${flow.smsAttempts}',
-      hint: '$hint\nتلاش بعدی حدود $wait ثانیه دیگر',
-      tech: tech,
-    );
-
-    _touch(flow.entry);
-  }
-
-  Future<void> _markSent(_Flow flow, String id) async {
-    final step = flow.mark;
-
-    flow.markAttempts++;
-
-    final uri = _config.markSentUri;
-    final body = jsonEncode({'id': id});
-    final req = 'POST $uri\n$body';
-
-    if (step.state == StepState.pending) {
-      step.update(StepState.pending, detail: 'در حال ثبت در سرور…');
-
-      _touch(flow.entry);
-    }
-
-    final sw = Stopwatch()..start();
-
-    try {
-      final res = await http
-          .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
-          .timeout(const Duration(seconds: 8));
-
-      sw.stop();
-
-      final reply =
-          '${res.statusCode} ${res.reasonPhrase ?? ''} · ${sw.elapsedMilliseconds}ms'
-              .trim();
-
-      if (res.statusCode == 200) {
-        step.update(StepState.ok, detail: 'سرور تایید کرد ($reply)', tech: req);
-
-        _finishFlow(id, flow);
-      } else if (res.statusCode == 404) {
-        step.update(
-          StepState.warn,
-          detail: 'سرور این شناسه را نمی‌شناسد (404) — احتمالاً قبلاً ثبت شده',
-          tech: req,
-        );
-
-        _finishFlow(id, flow);
-      } else {
-        final info = ErrorClassifier.httpStatus(res.statusCode);
-
-        _markFailed(
-          flow,
-          step,
-          info.title,
-          info.hint,
-          '$req\nپاسخ: $reply\n${_snippet(res.bodyBytes)}',
-        );
-      }
-    } catch (e) {
-      sw.stop();
-
-      final info = ErrorClassifier.network(e);
-
-      _markFailed(flow, step, info.title, info.hint, '$req\n${info.technical}');
-    }
-  }
-
-  void _markFailed(
-    _Flow flow,
-    FlowStep step,
-    String title,
-    String hint,
-    String tech,
-  ) {
-    if (step.state != StepState.fail) {
-      _failed++;
-    }
-
-    step.update(
-      StepState.fail,
-      detail: '$title · تلاش ${flow.markAttempts}',
-      hint: '$hint\nپیامک ارسال شده؛ ثبت در بررسی بعدی خودکار تکرار می‌شود.',
-      tech: tech,
-    );
-
-    _touch(flow.entry);
-  }
-
-  void _finishFlow(String id, _Flow flow) {
-    flow.retryAt = null;
-    _flows.remove(id);
-    _touch(flow.entry);
   }
 }

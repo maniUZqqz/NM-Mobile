@@ -8,10 +8,13 @@ import 'package:sms_bridge/sms_bridge.dart';
 
 /// صفحهٔ اتصال: آدرس سرور + حساب کارمندی NM ⇐ جفت‌سازی و دریافت توکن دستگاه.
 class ConnectScreen extends StatefulWidget {
-  const ConnectScreen({super.key, this.session});
+  const ConnectScreen({super.key, this.session, this.notifyService = true});
 
   /// برای تست؛ پیش‌فرض همان نمونهٔ سراسری است.
   final NmSession? session;
+
+  /// بعد از جفت‌سازی به سرویس پس‌زمینه خبر بدهد؟ (در تست خاموش است)
+  final bool notifyService;
 
   @override
   State<ConnectScreen> createState() => _ConnectScreenState();
@@ -88,9 +91,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
         androidVersion: _android,
       );
       _pass.clear();
-      try {
-        FlutterBackgroundService().invoke('sessionChanged');
-      } catch (_) {}
+      if (widget.notifyService) {
+        try {
+          FlutterBackgroundService().invoke('sessionChanged');
+        } catch (_) {}
+      }
     } on NmApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {

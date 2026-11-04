@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sms_bridge/sms_bridge.dart';
 import 'package:nm_mobile/core/theme/app_theme.dart';
-import 'package:nm_mobile/features/logs/presentation/log_style.dart';
 import 'package:nm_mobile/features/settings/domain/server_config.dart';
 
 class SettingsTab extends StatelessWidget {
@@ -52,7 +51,7 @@ class SettingsTab extends StatelessWidget {
           icon: Icons.dns_rounded,
           color: AppColors.secondary,
           title: 'تنظیمات سرور',
-          subtitle: 'آدرس و مسیرهای دریافت و ثبت کد',
+          subtitle: 'اتصال این گوشی به NM',
           onTap: onOpenServer,
           children: [
             _ValueLine(
@@ -61,7 +60,7 @@ class SettingsTab extends StatelessWidget {
               direction: TextDirection.ltr,
             ),
             _ValueLine(
-              label: 'دریافت',
+              label: 'صف پیامک',
               value: config.otpPath,
               direction: TextDirection.ltr,
             ),
@@ -76,10 +75,9 @@ class SettingsTab extends StatelessWidget {
           onTap: onOpenSms,
           children: [
             _ValueLine(label: 'خط ارسال', value: config.simTitle),
-            _ValueLine(
-              label: 'نمونه',
-              value: config.previewMessage,
-              direction: dirFor(config.previewMessage),
+            const _ValueLine(
+              label: 'متن پیامک',
+              value: 'از NM می‌آید',
             ),
           ],
         ),
