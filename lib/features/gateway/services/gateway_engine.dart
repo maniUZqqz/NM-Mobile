@@ -8,6 +8,11 @@ import 'package:nm_mobile/core/nm/json_util.dart';
 import 'package:nm_mobile/core/nm/nm_client.dart';
 import 'package:nm_mobile/core/nm/nm_session.dart';
 import 'package:nm_mobile/core/storage/app_storage.dart';
+import 'package:nm_mobile/features/calls/data/call_state.dart';
+import 'package:nm_mobile/features/calls/data/calls_api.dart';
+import 'package:nm_mobile/features/calls/services/call_cycle.dart';
+import 'package:nm_mobile/features/calls/services/recording_cycle.dart';
+import 'package:nm_mobile/features/calls/services/recording_source.dart';
 import 'package:nm_mobile/features/gateway/data/claim_store.dart';
 import 'package:nm_mobile/features/gateway/domain/sms_models.dart';
 import 'package:nm_mobile/features/gateway/services/incoming_uploader.dart';
@@ -56,6 +61,11 @@ class GatewayEngine {
   NmClient? _client;
   SmsPipeline? _pipeline;
   IncomingUploader? _uploader;
+  CallCycle? _calls;
+  RecordingCycle? _rec;
+  final CallStateStore _callState = FileCallStateStore();
+  final CallSettingsStore _callSettings = CallSettingsStore();
+  DateTime? _lastScan;
   NmSettings _settings = const NmSettings();
   ServerConfig _config = ServerConfig.defaults();
   List<SimCard> _sims = <SimCard>[];
@@ -120,6 +130,8 @@ class GatewayEngine {
       _client = null;
       _pipeline = null;
       _uploader = null;
+      _calls = null;
+      _rec = null;
       return;
     }
     final c = NmClient(baseUrl: d.serverUrl, token: d.deviceToken);
@@ -132,6 +144,18 @@ class GatewayEngine {
       onEvent: _onPipelineEvent,
     );
     _uploader = IncomingUploader(http: c, store: _pending);
+    final callsApi = CallsApi(
+      c,
+      upload: (path, {required fields, required filePath}) =>
+          c.postMultipart(path, fields: fields, fileField: 'audio', filePath: filePath),
+    );
+    _calls = CallCycle(
+      api: callsApi,
+      store: _callState,
+      drain: SmsBridge.drainCallEvents,
+      readLog: ({required since, required limit}) => SmsBridge.readCallLog(since: since, limit: limit),
+    );
+    _rec = RecordingCycle(source: SafFolderSource(_callSettings), api: callsApi, store: _callState);
   }
 
   Future<SmsSendResult> _send({
@@ -420,6 +444,7 @@ class GatewayEngine {
     try {
       await _heartbeatIfDue(c);
       await _nativeQueues(p);
+      await _callsStep();
       final res = await p.tick(
         max: _settings.claimBatch,
         simSlot: _config.simSlot >= 0 ? _config.simSlot : null,
@@ -497,6 +522,61 @@ class GatewayEngine {
     if (s is Map) _settings = NmSettings.fromJson(asMap(s));
   }
 
+  /// تماس‌ها: ثبتِ زنده، ارسال لاگ تماس و پیدا کردن فایل‌های ضبط. خطای این بخش
+  /// نباید ارسال پیامک را مختل کند (فقط ۴۰۱ به بالا می‌رسد).
+  Future<void> _callsStep() async {
+    final cc = _calls;
+    if (cc == null || !_settings.callsUploadEnabled) return;
+    try {
+      final st = await cc.process();
+      final a = st.active;
+      final ongoing = a != null && !a.ended;
+      final now = DateTime.now();
+      final rec = _rec;
+      if (rec != null &&
+          !ongoing &&
+          (_lastScan == null || now.difference(_lastScan!) > const Duration(seconds: 60))) {
+        _lastScan = now;
+        final added = await rec.scan();
+        if (added > 0) {
+          _add(
+            LogEntry(
+              kind: LogKind.system,
+              level: LogLevel.info,
+              title: 'ضبط تماس تازه‌ای پیدا شد',
+              detail: '$added فایل در تب «تماس‌ها» منتظر ارسال به NM است.',
+            ),
+          );
+        }
+        if ((await _callSettings.load()).autoUpload) {
+          final sent = await rec.autoUpload();
+          if (sent > 0) {
+            _add(
+              LogEntry(
+                kind: LogKind.system,
+                level: LogLevel.success,
+                title: 'ضبط تماس خودکار به NM فرستاده شد',
+                detail: '$sent فایل (رضایت ثبت‌شده داشتند).',
+              ),
+            );
+          }
+        }
+      }
+    } on NmHttpException {
+      rethrow;
+    } catch (e) {
+      _add(
+        LogEntry(
+          kind: LogKind.system,
+          level: LogLevel.warning,
+          title: 'بخش تماس‌ها با خطا روبه‌رو شد',
+          tech: ErrorClassifier.describe(e),
+          dedupeKey: 'calls-step',
+        ),
+      );
+    }
+  }
+
   /// پیامک‌های دریافتی و گزارش‌های تحویل که گیرنده‌های بومی در صف گذاشته‌اند.
   Future<void> _nativeQueues(SmsPipeline p) async {
     final up = _uploader;
@@ -563,6 +643,8 @@ class GatewayEngine {
       _client = null;
       _pipeline = null;
       _uploader = null;
+      _calls = null;
+      _rec = null;
       service.invoke('sessionRevoked');
       return;
     }
