@@ -17,6 +17,7 @@ dependencies:
   sms_bridge:
     path: packages/sms_bridge
   flutter_background_service: ^5.1.0
+  flutter_inappwebview: 6.2.0-beta.3
 
 
 
@@ -28,4 +29,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/lookup/
     - assets/messengers.json

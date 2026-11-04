@@ -7,7 +7,20 @@
 // See docs/api-contract.md ("Messenger profile lookup") for the server rules. In short:
 // lookups happen only for numbers of real calls (or one manual lookup), always go
 // through `lookups/authorize/` first, and the owner logs into the messengers himself.
-import 'package:flutter/material.dart';
+// How it works, what is verified and what is not: docs/lookup.md.
+import 'dart:typed_data';
+
+import 'adapter_runner.dart';
+import 'lookup_engine.dart';
+import 'lookup_models.dart';
+
+export 'adapter_runner.dart' show AdapterRunner, WebViewAdapterRunner;
+export 'lookup_engine.dart' show LookupEngine, LookupDelay;
+export 'lookup_messages.dart' show lookupMessage;
+export 'lookup_models.dart';
+export 'messengers_screen.dart' show MessengersScreen;
+export 'platforms.dart' show PlatformSpec, kWebViewPlatforms, kBanRiskWarning, platformSpecFor;
+export 'profiles_card.dart' show ProfilesCard;
 
 /// Minimal HTTP view of the NM mobile API. Paths are relative to `/api/v1/mobile/`,
 /// e.g. `lookups/latest/`. The core app's NmClient implements this.
@@ -15,6 +28,14 @@ import 'package:flutter/material.dart';
 abstract class NmHttp {
   Future<dynamic> getJson(String path, {Map<String, String>? query});
   Future<dynamic> postJson(String path, Object? body);
+}
+
+/// OPTIONAL extra: an [NmHttp] that can also fetch binary files (profile photos) with the
+/// device token. If the core client implements it, avatars are drawn; otherwise initials are.
+/// `path` is the absolute server path from the profile object, e.g.
+/// `/api/v1/mobile/lookups/UID/avatar/`.
+abstract interface class NmBinaryHttp {
+  Future<Uint8List> getBytes(String path);
 }
 
 class NmHttpException implements Exception {
@@ -77,7 +98,7 @@ class ProfileView {
   final String? username;
   final String? bio;
 
-  /// Path on the NM server (needs the device token), e.g. /api/v1/mobile/lookups/<uid>/avatar/
+  /// Path on the NM server (needs the device token), e.g. `/api/v1/mobile/lookups/UID/avatar/`
   final String? avatarPath;
 
   /// field name -> human source ("WhatsApp: push name")
@@ -100,9 +121,26 @@ class LookupProgress {
 }
 
 class LookupFacade {
-  LookupFacade(this.http);
+  factory LookupFacade(
+    NmHttp http, {
+    AdapterRunner? runner,
+    LookupDelay? delay,
+    Duration minGap = const Duration(seconds: 4),
+    Duration maxGap = const Duration(seconds: 9),
+  }) {
+    final r = runner ?? WebViewAdapterRunner();
+    return LookupFacade._(
+      http,
+      r,
+      LookupEngine(http: http, runner: r, delay: delay, minGap: minGap, maxGap: maxGap),
+    );
+  }
+
+  LookupFacade._(this.http, this.runner, this._engine);
 
   final NmHttp http;
+  final AdapterRunner runner;
+  final LookupEngine _engine;
 
   /// Newest stored profile per platform for this number (never triggers a lookup).
   Future<List<ProfileView>> latest(String number) async {
@@ -114,57 +152,30 @@ class LookupFacade {
         .toList();
   }
 
+  /// What the server enabled (per-platform switches, warnings, today's quota, the rules text).
+  Future<LookupConfig> config() => _engine.fetchConfig();
+
   /// Runs every enabled+ready platform for ONE number, one after another, politely
   /// spaced. `callUid` ties the lookup to a real call; `manual` is the single manual
-  /// lookup of a staff user. STUB: the lookup engine replaces this body.
+  /// lookup of a staff user.
   Future<void> runAll({
     required String number,
     String? callUid,
     bool manual = false,
     bool refresh = false,
     void Function(LookupProgress progress)? onProgress,
-  }) async {}
-}
-
-/// Card for the in-call screen and the call detail: latest profiles with the source of
-/// each field, "look up now" and "refresh" buttons. STUB until the lookup engine lands.
-class ProfilesCard extends StatelessWidget {
-  const ProfilesCard({
-    super.key,
-    required this.facade,
-    required this.number,
-    this.callUid,
-    this.manual = false,
-  });
-
-  final LookupFacade facade;
-  final String number;
-  final String? callUid;
-  final bool manual;
-
-  @override
-  Widget build(BuildContext context) {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(12),
-        child: Text('پروفایل پیام‌رسان‌ها: به‌زودی'),
-      ),
-    );
+  }) async {
+    await runAllDetailed(number: number, callUid: callUid, manual: manual, refresh: refresh, onProgress: onProgress);
   }
-}
 
-/// Screen where the owner logs into the messengers (WebViews) and sees which are
-/// ready, with the Persian ban-risk warning. STUB until the lookup engine lands.
-class MessengersScreen extends StatelessWidget {
-  const MessengersScreen({super.key, required this.facade});
-
-  final LookupFacade facade;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('پیام‌رسان‌ها')),
-      body: const Center(child: Text('به‌زودی')),
-    );
+  /// Same as [runAll] but tells how it ended (which platforms are done, why it stopped).
+  Future<LookupRunResult> runAllDetailed({
+    required String number,
+    String? callUid,
+    bool manual = false,
+    bool refresh = false,
+    void Function(LookupProgress progress)? onProgress,
+  }) {
+    return _engine.run(number: number, callUid: callUid, manual: manual, refresh: refresh, onProgress: onProgress);
   }
 }
