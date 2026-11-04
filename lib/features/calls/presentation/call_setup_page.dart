@@ -281,7 +281,9 @@ class _CallSetupPageState extends State<CallSetupPage> with WidgetsBindingObserv
               'روی این برند فایل ضبط برای برنامهٔ دیگر قابل خواندن نیست؛ ضبط تماس از راه NM-Mobile ممکن نیست.',
               color: AppColors.error,
             ),
-          SwitchListTile(
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.watchPhoneRecorder,
             onChanged: (v) => setState(() => _settings = _settings.copyWith(watchPhoneRecorder: v)),
@@ -289,6 +291,7 @@ class _CallSetupPageState extends State<CallSetupPage> with WidgetsBindingObserv
             subtitle: const Text(
               'پوشه‌های سامسونگ، شیائومی، هواوی، اوپو/ریلمی/وان‌پلاس، ویوو و ضبط‌کننده‌های دیگر بررسی می‌شود.',
             ),
+          ),
           ),
         ],
       ),
@@ -303,7 +306,9 @@ class _CallSetupPageState extends State<CallSetupPage> with WidgetsBindingObserv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SwitchListTile(
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.autoUploadToNm,
             onChanged: (v) => setState(() => _settings = _settings.copyWith(autoUploadToNm: v)),
@@ -312,6 +317,7 @@ class _CallSetupPageState extends State<CallSetupPage> with WidgetsBindingObserv
               'فقط برای شماره‌هایی که رضایتِ ضبطشان قبلاً در NM ثبت شده. برای بقیه فایل نمی‌رود و منتظرِ تأییدِ شما می‌ماند.',
               style: TextStyle(height: 1.6),
             ),
+          ),
           ),
           _note(
             theme,
