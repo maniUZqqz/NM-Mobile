@@ -29,6 +29,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.9"   # pinned: the version this app was built and tested with
           cache: true
       - run: flutter --version
       - run: flutter pub get
@@ -51,6 +52,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.9"   # pinned: the version this app was built and tested with
           cache: true
       - run: flutter pub get
       - name: accept Android SDK licenses
