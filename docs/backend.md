@@ -46,12 +46,22 @@
 ## برای بخش‌های دیگرِ NM (جذب مشتری و …)
 
 ```python
-from apps.mobile import api as mobile
-mobile.register_campaign_approval("ge:42", "پیشنهاد ویژه", approved_by=user, max_messages=300)   # بعد از تأییدِ انسان
-mobile.queue_sms("09121234567", "متن", kind="marketing", campaign_ref="ge:42", idempotency_key="ge:42:lead:9")
-mobile.is_opted_out("09121234567")          # فهرستِ سراسریِ لغو + «تماس نگیر»ِ جذب مشتری
-mobile.register_caller_source(fn)           # منبعِ فقط‌خواندنیِ تازه برای شناساییِ تماس‌گیرنده
+from apps.mobile.api import enqueue_sms, sms_status, register_campaign_approval, is_opted_out
+
+# بعد از تأییدِ یک انسان (فقط برای پیامِ تبلیغاتی لازم است):
+register_campaign_approval("ge:42", "پیشنهاد ویژه", approved_by=user, max_messages=300)
+
+# یک پیامک از راهِ گوشیِ جفت‌شدهٔ مالک؛ شناسهٔ پیام (UUID) را برمی‌گرداند
+sms_id = enqueue_sms("09121234567", "متن…", source="growth", ref="<شناسهٔ مورد کمپین>", campaign_ref="ge:42")
+sms_status(sms_id)   # {"state": "queued|sending|sent|delivered|failed|cancelled|blocked", "final": bool, "error_code": "...", ...}
 ```
+
+* `enqueue_sms(phone_number, text, *, source="growth", ref="", kind="marketing", campaign_ref="", created_by=None, not_before=None, expires_at=None) -> str`.
+  `source` + `ref` کلیدِ تکرارناپذیری می‌سازند (`"growth:<ref>"`): دوباره صدا زدن همان شناسه را برمی‌گرداند و پیامِ دوم نمی‌سازد.
+* خطاها `MobileError` با `code` ‏(`bad_number`، `missing_fields`، `too_long`، `campaign_not_approved`) یا `OptedOut` (کدِ `opted_out`؛ ردیفِ «مسدود» برای ردپا می‌ماند).
+* قیدها را NM-Mobile اجرا می‌کند، نه فراخواننده: فهرستِ «لغو» (هم هنگامِ صف‌گذاری هم هنگامِ تحویل به گوشی)، سقفِ ساعت/روز و سقفِ تبلیغاتیِ هر گوشی، ساعتِ سکوتِ ۲۱ تا ۸، توقفِ کلیِ صف، لغو/انقضای تأییدِ کمپین. اگر گوشی‌ای آنلاین نباشد پیام `queued` می‌ماند (با `expires_at` اگر به‌موقع برداشته نشود `failed/expired` می‌شود).
+* `sms_status(id)` / `sms_statuses([ids])` وضعیت را می‌خوانند؛ `sent` یعنی از گوشی رفته (ممکن است بعداً `delivered` شود).
+* کمکی‌ها: `is_opted_out(number)`، `add_opt_out(number)`، `revoke_campaign(ref)`، `cancel_sms(msg)`، `register_caller_source(fn)`، `queue_sms(...)` (نسخهٔ سطح‌پایین‌ترِ `enqueue_sms` با خروجیِ `(message, created)`).
 
 کدِ `apps/growth_engine` دست نخورده؛ فقط خوانده می‌شود (لیدها برای شناساییِ تماس‌گیرنده و فهرستِ «تماس نگیر»).
 
