@@ -98,7 +98,7 @@ class ProfileView {
   final String? username;
   final String? bio;
 
-  /// Path on the NM server (needs the device token), e.g. /api/v1/mobile/lookups/<uid>/avatar/
+  /// Path on the NM server (needs the device token), e.g. `/api/v1/mobile/lookups/UID/avatar/`
   final String? avatarPath;
 
   /// field name -> human source ("WhatsApp: push name")

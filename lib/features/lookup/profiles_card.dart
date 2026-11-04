@@ -294,7 +294,7 @@ class _AvatarState extends State<_Avatar> {
     final h = widget.http;
     final path = widget.path;
     if (path != null && path.isNotEmpty && h is NmBinaryHttp) {
-      _future = h.getBytes(path);
+      _future = (h as NmBinaryHttp).getBytes(path);
     }
   }
 
