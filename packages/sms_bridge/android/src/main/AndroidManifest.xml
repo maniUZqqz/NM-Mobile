@@ -1,14 +1,85 @@
-﻿<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.amirali.smsbridge">
 
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- زمان‌بندی دقیق: USE_EXACT_ALARM خودکار داده می‌شود (Android 13+)؛
+         در Android 12 مجوز SCHEDULE_EXACT_ALARM هنگام نصب داده می‌شود. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+
+    <!-- فایل‌های صوتیِ ضبط‌کنندهٔ داخلیِ گوشی (MediaStore). میکروفون لازم نیست و درخواست نمی‌شود. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <application>
+        <!-- پیامک دریافتی (برای ثبت «لغو/stop» و در صورت روشن‌بودن، ارسال به NM).
+             فقط خودِ سیستم می‌تواند این broadcast را بفرستد (BROADCAST_SMS). -->
+        <receiver
+            android:name="com.amirali.smsbridge.IncomingSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- وضعیت تماس‌ها (زنگ، گرفتن، پایان) برای دستیار تماس. صدایی ضبط نمی‌شود. -->
+        <receiver
+            android:name="com.amirali.smsbridge.PhoneCallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
+            </intent-filter>
+        </receiver>
+
+        <!-- گزارش تحویل پیامک؛ فقط از طریق PendingIntent خودِ برنامه فراخوانی می‌شود -->
+        <receiver
+            android:name="com.amirali.smsbridge.DeliveryReceiver"
+            android:exported="false" />
+
+        <!-- آلارم‌های بیدارکننده (سرویس بعد از کشته‌شدن دوباره بالا می‌آید) + بازسازی بعد از ری‌استارت/تغییر ساعت -->
+        <receiver
+            android:name="com.amirali.smsbridge.WakeReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- اشتراک‌گذاری ضبط و متن -->
+        <provider
+            android:name="com.amirali.smsbridge.SmsBridgeFileProvider"
+            android:authorities="${applicationId}.smsbridge.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/smsbridge_file_paths" />
+        </provider>
+    </application>
 
 </manifest>

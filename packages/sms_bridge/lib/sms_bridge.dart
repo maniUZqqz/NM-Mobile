@@ -121,6 +121,20 @@ class BridgeStatus {
   final int sdk;
   final String manufacturer;
   final String model;
+  final bool receiveSms;
+  final bool contacts;
+
+  /// برند گوشی با حروف کوچک (samsung، xiaomi، …) برای تشخیص ضبط‌کننده‌ی تماس.
+  final String brand;
+
+  /// آلارم دقیق (Exact alarm) مجاز است؟ در Android 12+ ممکن است کاربر بسته باشد.
+  final bool exactAlarm;
+
+  /// مجوز خواندن تاریخچه‌ی تماس.
+  final bool callLog;
+
+  /// مجوز خواندن فایل‌های صوتی (برای پیدا کردن ضبط‌های تماس).
+  final bool audioMedia;
 
   const BridgeStatus({
     required this.available,
@@ -134,6 +148,12 @@ class BridgeStatus {
     required this.sdk,
     required this.manufacturer,
     required this.model,
+    this.receiveSms = false,
+    this.contacts = false,
+    this.brand = '',
+    this.exactAlarm = true,
+    this.callLog = false,
+    this.audioMedia = false,
   });
 
   static const BridgeStatus unknown = BridgeStatus(
@@ -162,7 +182,118 @@ class BridgeStatus {
         sdk: _i(m['sdk'], 0),
         manufacturer: _s(m['manufacturer']),
         model: _s(m['model']),
+        receiveSms: _b(m['receiveSms'], false),
+        contacts: _b(m['contacts'], false),
+        brand: _s(m['brand']),
+        exactAlarm: _b(m['exactAlarm'], true),
+        callLog: _b(m['callLog'], false),
+        audioMedia: _b(m['audioMedia'], false),
       );
+}
+
+/// پیامکِ دریافتی که گیرندهٔ بومی در صف گذاشته است.
+class IncomingSms {
+  const IncomingSms({
+    required this.from,
+    required this.body,
+    required this.at,
+    this.subId = -1,
+    this.slot = -1,
+  });
+
+  factory IncomingSms.fromMap(Map<String, dynamic> m) => IncomingSms(
+        from: _s(m['from']),
+        body: _s(m['body']),
+        at: DateTime.fromMillisecondsSinceEpoch(_i(m['at'], 0)),
+        subId: _i(m['subId'], -1),
+        slot: _i(m['slot'], -1),
+      );
+
+  final String from;
+  final String body;
+  final DateTime at;
+  final int subId;
+  final int slot;
+}
+
+/// گزارش تحویلِ یک بخش از یک پیامک (ref = uid در NM).
+class DeliveryEvent {
+  const DeliveryEvent({
+    required this.ref,
+    required this.part,
+    required this.total,
+    required this.ok,
+    required this.status,
+  });
+
+  factory DeliveryEvent.fromMap(Map<String, dynamic> m) => DeliveryEvent(
+        ref: _s(m['ref']),
+        part: _i(m['part'], 0),
+        total: _i(m['total'], 1),
+        ok: _b(m['ok'], false),
+        status: _i(m['status'], -1),
+      );
+
+  final String ref;
+  final int part;
+  final int total;
+
+  /// گزارش از اپراتور رسید
+  final bool ok;
+
+  /// کد وضعیت SMS-STATUS-REPORT؛ ۰ تا ۳۱ یعنی تحویل شد، ۶۴ به بالا شکست دائمی
+  final int status;
+
+  bool get delivered => ok && (status < 0 || status < 32);
+  bool get failed => !ok || status >= 64;
+}
+
+/// باتری و شبکه، برای heartbeat
+class DeviceState {
+  const DeviceState({
+    this.battery = -1,
+    this.charging = false,
+    this.network = 'none',
+  });
+
+  factory DeviceState.fromMap(Map<String, dynamic> m) => DeviceState(
+        battery: _i(m['battery'], -1),
+        charging: _b(m['charging'], false),
+        network: _s(m['network']).isEmpty ? 'none' : _s(m['network']),
+      );
+
+  final int battery;
+  final bool charging;
+  final String network;
+}
+
+/// رویداد وضعیت تماس از گیرندهٔ بومی: ring | dial | answered | ended
+class CallEvent {
+  const CallEvent({
+    required this.type,
+    required this.number,
+    required this.direction,
+    required this.session,
+    required this.at,
+  });
+
+  factory CallEvent.fromMap(Map<String, dynamic> m) => CallEvent(
+        type: _s(m['type']),
+        number: _s(m['number']),
+        direction: _s(m['direction']),
+        session: _i(m['session'], 0),
+        at: DateTime.fromMillisecondsSinceEpoch(_i(m['at'], 0)),
+      );
+
+  final String type;
+  final String number;
+
+  /// in | out
+  final String direction;
+
+  /// شمارهٔ نوبتِ تماس (هر تماسِ تازه یک شماره)
+  final int session;
+  final DateTime at;
 }
 
 class PickedContactFile {
@@ -170,6 +301,153 @@ class PickedContactFile {
 
   final String path;
   final String name;
+}
+
+/// وضعیت آلارم بیدارکننده‌ی سرویس.
+class WakeStatus {
+  const WakeStatus({
+    required this.canExact,
+    required this.nextWakeAt,
+    required this.nextWakeReason,
+    required this.lastFiredAt,
+    required this.lastFiredReason,
+    required this.lastStartedService,
+    required this.lastError,
+    required this.mode,
+  });
+
+  final bool canExact;
+  final DateTime? nextWakeAt;
+  final String nextWakeReason;
+  final DateTime? lastFiredAt;
+  final String lastFiredReason;
+  final bool lastStartedService;
+  final String lastError;
+
+  /// `exact`، `inexact` یا `none`
+  final String mode;
+
+  static const WakeStatus unknown = WakeStatus(
+    canExact: false,
+    nextWakeAt: null,
+    nextWakeReason: '',
+    lastFiredAt: null,
+    lastFiredReason: '',
+    lastStartedService: false,
+    lastError: '',
+    mode: 'none',
+  );
+
+  factory WakeStatus.fromMap(Map<String, dynamic> m) {
+    DateTime? at(dynamic v) =>
+        v is num && v > 0 ? DateTime.fromMillisecondsSinceEpoch(v.toInt()) : null;
+    return WakeStatus(
+      canExact: _b(m['canExact'], false),
+      nextWakeAt: at(m['nextWakeAt']),
+      nextWakeReason: _s(m['nextWakeReason']),
+      lastFiredAt: at(m['lastFiredAt']),
+      lastFiredReason: _s(m['lastFiredReason']),
+      lastStartedService: _b(m['lastStartedService'], false),
+      lastError: _s(m['lastError']),
+      mode: _s(m['mode']).isEmpty ? 'none' : _s(m['mode']),
+    );
+  }
+}
+
+/// یک ردیف خام از تاریخچه‌ی تماس گوشی.
+class RawCallLogEntry {
+  const RawCallLogEntry({
+    required this.id,
+    required this.number,
+    required this.name,
+    required this.startedAtMillis,
+    required this.durationSeconds,
+    required this.type,
+  });
+
+  final int id;
+  final String number;
+  final String name;
+  final int startedAtMillis;
+  final int durationSeconds;
+
+  /// مقدار `CallLog.Calls.TYPE` اندروید: 1 ورودی، 2 خروجی، 3 بی‌پاسخ، 5 ردشده، 6 مسدود
+  final int type;
+
+  factory RawCallLogEntry.fromMap(Map<String, dynamic> m) => RawCallLogEntry(
+    id: _i(m['id'], 0),
+    number: _s(m['number']),
+    name: _s(m['name']),
+    startedAtMillis: _i(m['date'], 0),
+    durationSeconds: _i(m['duration'], 0),
+    type: _i(m['type'], 0),
+  );
+}
+
+/// یک فایل صوتی پیدا شده در حافظه (MediaStore).
+class RawAudioFile {
+  const RawAudioFile({
+    required this.id,
+    required this.uri,
+    required this.displayName,
+    required this.relativePath,
+    required this.mime,
+    required this.durationMs,
+    required this.sizeBytes,
+    required this.dateAddedMillis,
+    required this.dateModifiedMillis,
+  });
+
+  final int id;
+  final String uri;
+  final String displayName;
+  final String relativePath;
+  final String mime;
+  final int durationMs;
+  final int sizeBytes;
+  final int dateAddedMillis;
+  final int dateModifiedMillis;
+
+  factory RawAudioFile.fromMap(Map<String, dynamic> m) => RawAudioFile(
+    id: _i(m['id'], 0),
+    uri: _s(m['uri']),
+    displayName: _s(m['displayName']),
+    relativePath: _s(m['relativePath']),
+    mime: _s(m['mime']),
+    durationMs: _i(m['durationMs'], 0),
+    sizeBytes: _i(m['size'], 0),
+    dateAddedMillis: _i(m['dateAdded'], 0),
+    dateModifiedMillis: _i(m['dateModified'], 0),
+  );
+}
+
+/// وضعیت پخش‌کننده‌ی صوتی داخلی.
+class PlayerState {
+  const PlayerState({
+    required this.playing,
+    required this.positionMs,
+    required this.durationMs,
+    required this.path,
+  });
+
+  final bool playing;
+  final int positionMs;
+  final int durationMs;
+  final String path;
+
+  static const PlayerState idle = PlayerState(
+    playing: false,
+    positionMs: 0,
+    durationMs: 0,
+    path: '',
+  );
+
+  factory PlayerState.fromMap(Map<String, dynamic> m) => PlayerState(
+    playing: _b(m['playing'], false),
+    positionMs: _i(m['positionMs'], 0),
+    durationMs: _i(m['durationMs'], 0),
+    path: _s(m['path']),
+  );
 }
 
 class SmsBridge {
@@ -236,12 +514,16 @@ class SmsBridge {
     required String to,
     required String message,
     int subId = -1,
+    String? ref,
+    bool delivery = false,
   }) async {
     try {
       final m = await _ch.invokeMapMethod<String, dynamic>('sendSms', {
         'to': to,
         'message': message,
         'subId': subId,
+        'ref': ref ?? '',
+        'delivery': delivery,
       }).timeout(const Duration(seconds: 75));
       if (m == null) {
         return SmsSendResult.failure(-102, 'پاسخ خالی از لایه بومی',
@@ -261,16 +543,271 @@ class SmsBridge {
     }
   }
 
-  /// قفل CPU و Wi-Fi تا سرویس پس‌زمینه در حالت خواب (Doze) متوقف نشود
-  static Future<void> acquireLocks() async {
+  static List<Map<String, dynamic>> _maps(dynamic raw) {
+    final out = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) out.add(Map<String, dynamic>.from(e));
+      }
+    }
+    return out;
+  }
+
+  /// پیامک‌های دریافتی از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<IncomingSms>> drainIncoming() async {
     try {
-      await _ch.invokeMethod<bool>('acquireLocks');
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainIncoming');
+      return _maps(raw).map(IncomingSms.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// گزارش‌های تحویل رسیده از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<DeliveryEvent>> drainDelivery() async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainDelivery');
+      return _maps(raw).map(DeliveryEvent.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<DeviceState> deviceState() async {
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('deviceState');
+      if (m == null) return const DeviceState();
+      return DeviceState.fromMap(m);
+    } catch (_) {
+      return const DeviceState();
+    }
+  }
+
+  /// رویدادهای تماس از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<CallEvent>> drainCallEvents() async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainCallEvents');
+      return _maps(raw).map(CallEvent.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<bool> isInstalled(String package) async {
+    try {
+      return (await _ch.invokeMethod<bool>('isInstalled', {
+            'package': package,
+          })) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// لینک را باز می‌کند؛ اگر [package] نصب باشد همان برنامه آن را می‌گیرد.
+  static Future<bool> openUrl(String url, {String? package}) async {
+    try {
+      return (await _ch.invokeMethod<bool>('openUrl', {
+            'url': url,
+            'package': package ?? '',
+          })) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// صفحهٔ «ذخیرهٔ مخاطب» اندروید را با نام و شماره باز می‌کند.
+  static Future<bool> insertContact({
+    String name = '',
+    required String number,
+  }) async {
+    try {
+      return (await _ch.invokeMethod<bool>('insertContact', {
+            'name': name,
+            'number': number,
+          })) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// قفل CPU و Wi-Fi تا سرویس پس‌زمینه در حالت خواب (Doze) متوقف نشود
+  static Future<void> acquireLocks() => setLocks(cpu: true, wifi: true);
+
+  static Future<void> releaseLocks() => setLocks(cpu: false, wifi: false);
+
+  /// قفل‌ها را روی وضعیت دلخواه می‌گذارد. وقتی [cpu] خاموش است، قفلِ CPUِ خودِ افزونه‌ی
+  /// سرویس پس‌زمینه هم آزاد می‌شود (آن افزونه خودش هیچ‌وقت آزادش نمی‌کند).
+  static Future<void> setLocks({required bool cpu, required bool wifi}) async {
+    try {
+      await _ch.invokeMethod<bool>('setLocks', {'cpu': cpu, 'wifi': wifi});
     } catch (_) {}
   }
 
-  static Future<void> releaseLocks() async {
+  // ───────────────────────── زمان‌بندی (آلارم سیستم‌عامل) ─────────────────────────
+
+  static void Function(String reason)? _wakeHandler;
+  static bool _handlerInstalled = false;
+
+  /// وقتی آلارم به یک ایزوله‌ی زنده می‌رسد، [handler] با دلیل بیداری صدا زده می‌شود.
+  static void setWakeHandler(void Function(String reason)? handler) {
+    _wakeHandler = handler;
+    if (_handlerInstalled) return;
+    _handlerInstalled = true;
+    // به سمت بومی بگو این ایزوله کنترل‌کننده‌ی «بیدار شو» دارد (پس نیازی به بالا آوردن دوباره‌ی سرویس نیست)
+    _ch.invokeMethod<bool>('registerWakeHandler').catchError((_) => null);
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'onWake') {
+        final args = call.arguments;
+        final reason = args is Map ? _s(args['reason']) : _s(args);
+        _wakeHandler?.call(reason);
+      }
+      return null;
+    });
+  }
+
+  /// یک آلارم بیدارکننده برای لحظه‌ی [at] ثبت می‌کند (جایگزین آلارم قبلیِ همان [slot]؛
+  /// هر بخش برنامه یک slot جدا دارد: `campaign`، `calls`، `selftest`). با کشته‌شدن
+  /// برنامه یا ری‌استارت گوشی هم باقی می‌ماند. نتیجه: `exact`، `inexact` یا `failed`.
+  static Future<String> scheduleWake(
+    DateTime at, {
+    String reason = 'schedule',
+    String slot = 'campaign',
+  }) async {
     try {
-      await _ch.invokeMethod<bool>('releaseLocks');
+      final m = await _ch.invokeMapMethod<String, dynamic>('scheduleWake', {
+        'atMillis': at.millisecondsSinceEpoch,
+        'reason': reason,
+        'slot': slot,
+      });
+      return _s(m?['mode']);
+    } catch (_) {
+      return 'failed';
+    }
+  }
+
+  static Future<void> cancelWake({String slot = 'campaign'}) async {
+    try {
+      await _ch.invokeMethod<bool>('cancelWake', {'slot': slot});
     } catch (_) {}
   }
+
+  static Future<WakeStatus> wakeStatus() async {
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('wakeStatus');
+      if (m == null) return WakeStatus.unknown;
+      return WakeStatus.fromMap(m);
+    } catch (_) {
+      return WakeStatus.unknown;
+    }
+  }
+
+  /// صفحه‌ی «آلارم‌ها و یادآورها» (Android 12+) برای دادن اجازه‌ی آلارم دقیق.
+  static Future<bool> openExactAlarmSettings() =>
+      _boolCall('openExactAlarmSettings');
+
+  /// تلاش برای باز کردن صفحه‌ی «شروع خودکار/Autostart» سازنده‌ی گوشی (شیائومی، هواوی، …).
+  static Future<bool> openAutoStartSettings() =>
+      _boolCall('openAutoStartSettings');
+
+  static Future<bool> _boolCall(
+    String method, [
+    Map<String, dynamic>? args,
+  ]) async {
+    try {
+      return (await _ch.invokeMethod<bool>(method, args)) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ───────────────────────── تماس‌ها و ضبط ─────────────────────────
+
+  /// تماس‌های تاریخچه‌ی گوشی از [sinceMillis] به بعد (نیاز به مجوز READ_CALL_LOG).
+  static Future<List<RawCallLogEntry>> queryCallLog({
+    int sinceMillis = 0,
+    int limit = 300,
+  }) async {
+    try {
+      final raw = await _ch.invokeListMethod<dynamic>('queryCallLog', {
+        'sinceMillis': sinceMillis,
+        'limit': limit,
+      });
+      return (raw ?? const [])
+          .whereType<Map>()
+          .map((e) => RawCallLogEntry.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// فایل‌های صوتیِ تازه‌تر از [sinceMillis] (بر پایه‌ی زمان افزودن) از MediaStore.
+  static Future<List<RawAudioFile>> queryAudioFiles({
+    int sinceMillis = 0,
+    int limit = 500,
+  }) async {
+    try {
+      final raw = await _ch.invokeListMethod<dynamic>('queryAudioFiles', {
+        'sinceMillis': sinceMillis,
+        'limit': limit,
+      });
+      return (raw ?? const [])
+          .whereType<Map>()
+          .map((e) => RawAudioFile.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// فایلی را از آدرس محتوا (content://) به مسیر داخلی برنامه کپی می‌کند.
+  static Future<String?> copyUriToFile({
+    required String uri,
+    required String destinationPath,
+  }) async {
+    try {
+      return await _ch.invokeMethod<String>('copyUriToFile', {
+        'uri': uri,
+        'destination': destinationPath,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ───────────────────────── پخش و اشتراک‌گذاری ─────────────────────────
+
+  static Future<bool> playerPlay(String path) =>
+      _boolCall('playerPlay', {'path': path});
+  static Future<bool> playerPause() => _boolCall('playerPause');
+  static Future<bool> playerResume() => _boolCall('playerResume');
+  static Future<bool> playerStop() => _boolCall('playerStop');
+  static Future<bool> playerSeek(int positionMs) =>
+      _boolCall('playerSeek', {'positionMs': positionMs});
+
+  static Future<PlayerState> playerState() async {
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('playerState');
+      if (m == null) return PlayerState.idle;
+      return PlayerState.fromMap(m);
+    } catch (_) {
+      return PlayerState.idle;
+    }
+  }
+
+  static Future<bool> shareText(String text, {String subject = ''}) =>
+      _boolCall('shareText', {'text': text, 'subject': subject});
+
+  static Future<bool> shareFile(
+    String path, {
+    String mime = '*/*',
+    String subject = '',
+  }) => _boolCall('shareFile', {
+    'path': path,
+    'mime': mime,
+    'subject': subject,
+  });
 }

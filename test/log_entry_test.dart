@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:untitled3/features/logs/domain/log_entry.dart';
+import 'package:nm_mobile/features/logs/domain/log_entry.dart';
 
 void main() {
   test('LogEntry preserves a flow when serialized and restored', () {

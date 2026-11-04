@@ -5,21 +5,24 @@ import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sms_bridge/sms_bridge.dart';
-import 'package:untitled3/core/constants/app_constants.dart';
-import 'package:untitled3/core/storage/app_storage.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/features/campaigns/data/scheduled_campaign_storage.dart';
-import 'package:untitled3/features/campaigns/presentation/campaigns_tab.dart';
-import 'package:untitled3/features/contacts/presentation/contacts_tab.dart';
-import 'package:untitled3/features/home/presentation/pages/activity_tab.dart';
-import 'package:untitled3/features/home/presentation/pages/dashboard_tab.dart';
-import 'package:untitled3/features/home/presentation/pages/settings_tab.dart';
-import 'package:untitled3/features/logs/data/log_storage.dart';
-import 'package:untitled3/features/logs/domain/log_entry.dart';
-import 'package:untitled3/features/settings/domain/server_config.dart';
-import 'package:untitled3/features/settings/presentation/permissions_sheet.dart';
-import 'package:untitled3/features/settings/presentation/server_settings_sheet.dart';
-import 'package:untitled3/features/settings/presentation/sms_settings_sheet.dart';
+import 'package:nm_mobile/core/constants/app_constants.dart';
+import 'package:nm_mobile/core/nm/nm_session.dart';
+import 'package:nm_mobile/core/storage/app_storage.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/features/campaigns/data/scheduled_campaign_storage.dart';
+import 'package:nm_mobile/features/campaigns/presentation/campaigns_tab.dart';
+import 'package:nm_mobile/features/contacts/presentation/contacts_tab.dart';
+import 'package:nm_mobile/features/home/presentation/pages/activity_tab.dart';
+import 'package:nm_mobile/features/home/presentation/pages/dashboard_tab.dart';
+import 'package:nm_mobile/features/home/presentation/pages/settings_tab.dart';
+import 'package:nm_mobile/features/logs/data/log_storage.dart';
+import 'package:nm_mobile/features/logs/domain/log_entry.dart';
+import 'package:nm_mobile/features/optout/optout_page.dart';
+import 'package:nm_mobile/features/settings/domain/send_settings.dart';
+import 'package:nm_mobile/features/settings/domain/server_config.dart';
+import 'package:nm_mobile/features/settings/presentation/send_settings_sheet.dart';
+import 'package:nm_mobile/features/settings/presentation/permissions_sheet.dart';
+import 'package:nm_mobile/features/settings/presentation/sms_settings_sheet.dart';
 
 class _ConnView {
   final String label;
@@ -218,14 +221,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _exportText() {
     final b = StringBuffer();
 
-    b.writeln('SMS Gateway — ${DateTime.now()}');
+    b.writeln('NM SMS Gateway — ${DateTime.now()}');
 
     b.writeln(
-      'Server: ${_config.baseUrl}  (${_config.otpPath} , ${_config.markSentPath})',
+      'NM server: ${_config.baseUrl}',
     );
 
     b.writeln(
-      'SIM: ${_config.simTitle} · Template: ${_config.smsTemplate.replaceAll('\n', ' ')}',
+      'SIM: ${_config.simTitle}',
     );
 
     b.writeln(
@@ -276,7 +279,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // ── app state ──────────────────────────────────────────────────────────────
 
   Future<void> _loadConfig() async {
-    final cfg = await ConfigStorage.load();
+    final stored = await ConfigStorage.load();
+    final nm = NmSession.instance.data;
+    // address and paths come from the NM pairing, not from the old settings
+    final cfg = nm == null
+        ? stored
+        : stored.copyWith(
+            baseUrl: nm.serverUrl,
+            otpPath: 'sms/claim/',
+            markSentPath: 'sms/<uid>/report/',
+          );
 
     if (!mounted) return;
 
@@ -489,20 +501,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _openSettingsSheet() async {
-    final result = await showModalBottomSheet<ServerConfig>(
+    final nm = NmSession.instance.data;
+    await showDialog<void>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.dns_rounded, color: AppColors.secondary),
+        title: const Text('اتصال به NM'),
+        content: Text(
+          'سرور: ${nm?.serverUrl ?? '-'}\n'
+          'دستگاه: ${nm?.deviceName ?? '-'}\n'
+          'کاربر: ${nm?.username ?? '-'}\n\n'
+          'آدرس سرور هنگام جفت‌سازی تعیین می‌شود. برای عوض‌کردنش از '
+          '«بیشتر ⇐ قطع اتصال این گوشی» استفاده کنید و دوباره جفت کنید.',
+          style: const TextStyle(height: 1.7),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('باشه'),
+          ),
+        ],
       ),
-      builder: (context) => ServerSettingsSheet(initialConfig: _config),
     );
-
-    if (result == null || !mounted) return;
-
-    await _applyConfig(result, 'تنظیمات سرور با موفقیت ذخیره شد');
   }
 
   Future<void> _openSmsSheet() async {
@@ -523,6 +543,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (result == null || !mounted) return;
 
     await _applyConfig(result, 'تنظیمات پیامک ذخیره شد');
+  }
+
+  Future<void> _openSendSettings() async {
+    final current = await SendSettingsStorage.load();
+    if (!mounted) return;
+    final result = await showModalBottomSheet<SendSettings>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SendSettingsSheet(initial: current),
+    );
+    if (result == null || !mounted) return;
+    await SendSettingsStorage.save(result);
+    FlutterBackgroundService().invoke('reloadSendSettings');
+    _snack('تنظیمات احتیاط در ارسال ذخیره شد');
+  }
+
+  Future<void> _openOptOut() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const OptOutPage()),
+    );
   }
 
   Future<void> _openPermissionsSheet() async {
@@ -733,7 +778,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             missingPermissions: _missingCount,
             serverUrl: _config.baseUrl,
             simTitle: _config.simTitle,
-            messagePreview: _config.previewMessage,
+            messagePreview: 'متن هر پیامک را NM می‌فرستد',
             latestLog: _logs.isEmpty ? null : _logs.first,
             onRefresh: _refreshOverview,
             onStart: _startFromUi,
@@ -765,6 +810,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onOpenPermissions: _openPermissionsSheet,
             onStart: _startFromUi,
             onStop: _stopService,
+            onOpenSendSettings: _openSendSettings,
+            onOpenOptOut: _openOptOut,
           ),
         ],
       ),

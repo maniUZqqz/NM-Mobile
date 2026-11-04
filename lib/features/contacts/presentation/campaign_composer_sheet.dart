@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/features/contacts/domain/contact.dart';
-import 'package:untitled3/features/contacts/domain/sms_campaign.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/features/contacts/domain/contact.dart';
+import 'package:nm_mobile/features/contacts/domain/sms_campaign.dart';
 
 enum _IntervalUnit { seconds, minutes }
 

@@ -8,9 +8,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
@@ -31,6 +36,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
@@ -56,6 +65,37 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
     private static final long SEND_TIMEOUT_MS = 60_000L;
     private static final int PICK_CONTACT_FILE_REQUEST = 7431;
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(1);
+    /** با هر فرایند تازه عوض می‌شود تا گزارش دیرهنگامِ فرایند قبلی با پیامک جدید اشتباه گرفته نشود. */
+    private static final long PROCESS_STAMP = System.currentTimeMillis();
+
+    /**
+     * نمونه‌هایی از افزونه که در ایزوله‌ی سرویس پس‌زمینه‌اند و Dart برایشان کنترل‌کننده‌ی
+     * «بیدار شو» ثبت کرده است. آلارم سیستم‌عامل فقط به اینها خبر می‌دهد.
+     */
+    private static final Set<SmsBridgePlugin> WAKE_LISTENERS = new CopyOnWriteArraySet<>();
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor();
+
+    /** true یعنی دست‌کم یک ایزوله‌ی زنده خبر را گرفت (نیازی به بالا آوردن دوباره‌ی سرویس نیست). */
+    static boolean notifyWake(final String reason) {
+        boolean delivered = false;
+        for (final SmsBridgePlugin plugin : WAKE_LISTENERS) {
+            final MethodChannel ch = plugin.channel;
+            if (ch == null) continue;
+            delivered = true;
+            plugin.mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Map<String, Object> args = new HashMap<>();
+                        args.put("reason", reason);
+                        ch.invokeMethod("onWake", args);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+        }
+        return delivered;
+    }
 
     private Context context;
     private Activity activity;
@@ -66,6 +106,7 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
 
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
+    private final AudioPlayerBridge audioPlayer = new AudioPlayerBridge();
 
     // ───────────────────────── lifecycle ─────────────────────────
 
@@ -78,8 +119,10 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
 
     @Override
     public void onDetachedFromEngine(FlutterPluginBinding binding) {
+        WAKE_LISTENERS.remove(this);
         if (channel != null) channel.setMethodCallHandler(null);
         channel = null;
+        audioPlayer.stop();
         releaseLocks();
     }
 
@@ -136,6 +179,44 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 case "pickContactFile":
                     pickContactFile(result);
                     break;
+                case "deviceState":
+                    result.success(deviceState());
+                    break;
+                case "drainCallEvents":
+                    result.success(Queues.drain(context, Queues.CALL_EVENTS));
+                    break;
+                case "showCallNotification":
+                    CallSupport.showCallNotification(context, str((CharSequence) call.argument("title")),
+                            str((CharSequence) call.argument("text")));
+                    result.success(true);
+                    break;
+                case "cancelCallNotification":
+                    CallSupport.cancelCallNotification(context);
+                    result.success(true);
+                    break;
+                case "isInstalled": {
+                    String pkg = call.argument("package");
+                    result.success(pkg != null && CallSupport.isInstalled(context, pkg));
+                    break;
+                }
+                case "openUrl": {
+                    String url = call.argument("url");
+                    String pkg = call.argument("package");
+                    result.success(url != null && CallSupport.openUrl(context, url, pkg));
+                    break;
+                }
+                case "insertContact": {
+                    String name = call.argument("name");
+                    String number = call.argument("number");
+                    result.success(CallSupport.insertContact(context, name, number));
+                    break;
+                }
+                case "drainIncoming":
+                    result.success(Queues.drain(context, Queues.INCOMING_SMS));
+                    break;
+                case "drainDelivery":
+                    result.success(Queues.drain(context, Queues.SMS_DELIVERY));
+                    break;
                 case "acquireLocks":
                     acquireLocks();
                     result.success(true);
@@ -143,6 +224,94 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 case "releaseLocks":
                     releaseLocks();
                     result.success(true);
+                    break;
+                case "setLocks":
+                    setLocks(boolArg(call, "cpu"), boolArg(call, "wifi"));
+                    result.success(true);
+                    break;
+                case "registerWakeHandler":
+                    WAKE_LISTENERS.add(this);
+                    result.success(true);
+                    break;
+                case "scheduleWake":
+                    result.success(scheduleWake(call));
+                    break;
+                case "cancelWake": {
+                    String slot = call.argument("slot");
+                    WakeScheduler.cancel(context, slot == null ? "campaign" : slot);
+                    result.success(true);
+                    break;
+                }
+                case "wakeStatus":
+                    result.success(wakeStatus());
+                    break;
+                case "openExactAlarmSettings":
+                    result.success(OemSettings.openExactAlarm(contextForUi()));
+                    break;
+                case "openAutoStartSettings":
+                    result.success(OemSettings.openAutoStart(contextForUi()));
+                    break;
+                case "queryCallLog":
+                    runAsync(result, new Job() {
+                        @Override
+                        public Object run() {
+                            Number since = call.argument("sinceMillis");
+                            Number limit = call.argument("limit");
+                            return CallMedia.queryCallLog(context,
+                                    since == null ? 0L : since.longValue(),
+                                    limit == null ? 300 : limit.intValue());
+                        }
+                    });
+                    break;
+                case "queryAudioFiles":
+                    runAsync(result, new Job() {
+                        @Override
+                        public Object run() {
+                            Number since = call.argument("sinceMillis");
+                            Number limit = call.argument("limit");
+                            return CallMedia.queryAudioFiles(context,
+                                    since == null ? 0L : since.longValue(),
+                                    limit == null ? 500 : limit.intValue());
+                        }
+                    });
+                    break;
+                case "copyUriToFile":
+                    runAsync(result, new Job() {
+                        @Override
+                        public Object run() {
+                            return CallMedia.copyUriToFile(context,
+                                    (String) call.argument("uri"), (String) call.argument("destination"));
+                        }
+                    });
+                    break;
+                case "playerPlay":
+                    result.success(audioPlayer.play((String) call.argument("path")));
+                    break;
+                case "playerPause":
+                    result.success(audioPlayer.pause());
+                    break;
+                case "playerResume":
+                    result.success(audioPlayer.resume());
+                    break;
+                case "playerStop":
+                    result.success(audioPlayer.stop());
+                    break;
+                case "playerSeek": {
+                    Number position = call.argument("positionMs");
+                    result.success(audioPlayer.seek(position == null ? 0 : position.intValue()));
+                    break;
+                }
+                case "playerState":
+                    result.success(audioPlayer.state());
+                    break;
+                case "shareText":
+                    result.success(ShareHelper.shareText(contextForUi(),
+                            (String) call.argument("text"), (String) call.argument("subject")));
+                    break;
+                case "shareFile":
+                    result.success(ShareHelper.shareFile(contextForUi(),
+                            (String) call.argument("path"), (String) call.argument("mime"),
+                            (String) call.argument("subject")));
                     break;
                 default:
                     result.notImplemented();
@@ -274,6 +443,9 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("sendSms", has(Manifest.permission.SEND_SMS));
         m.put("phoneState", has(Manifest.permission.READ_PHONE_STATE));
         m.put("phoneNumbers", Build.VERSION.SDK_INT < 26 || has(Manifest.permission.READ_PHONE_NUMBERS));
+        m.put("receiveSms", has(Manifest.permission.RECEIVE_SMS));
+        m.put("callLog", has(Manifest.permission.READ_CALL_LOG));
+        m.put("contacts", has(Manifest.permission.READ_CONTACTS));
         m.put("notifications", notificationsEnabled());
         m.put("battery", ignoringBatteryOptimizations());
         m.put("airplane", airplaneMode());
@@ -281,6 +453,92 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("sdk", Build.VERSION.SDK_INT);
         m.put("manufacturer", str(Build.MANUFACTURER));
         m.put("model", str(Build.MODEL));
+        m.put("brand", str(Build.BRAND).toLowerCase());
+        m.put("exactAlarm", WakeScheduler.canScheduleExact(context));
+        m.put("callLog", has(Manifest.permission.READ_CALL_LOG));
+        m.put("audioMedia", Build.VERSION.SDK_INT >= 33
+                ? has("android.permission.READ_MEDIA_AUDIO")
+                : has(Manifest.permission.READ_EXTERNAL_STORAGE));
+        return m;
+    }
+
+    // ───────────────────────── helpers (جدید) ─────────────────────────
+
+    private interface Job {
+        Object run();
+    }
+
+    /** کارهای سنگین (پرس‌وجوی MediaStore، کپی فایل) را خارج از نخ اصلی اجرا می‌کند. */
+    private void runAsync(final MethodChannel.Result result, final Job job) {
+        IO.execute(new Runnable() {
+            @Override
+            public void run() {
+                Object value = null;
+                Throwable error = null;
+                try {
+                    value = job.run();
+                } catch (Throwable t) {
+                    error = t;
+                }
+                final Object finalValue = value;
+                final Throwable finalError = error;
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (finalError != null) {
+                            result.error("NATIVE_ERROR", finalError.toString(), null);
+                        } else {
+                            result.success(finalValue);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private static boolean boolArg(MethodCall call, String name) {
+        Boolean v = call.argument(name);
+        return v != null && v;
+    }
+
+    /** برای باز کردن صفحه‌ها: Activity اگر هست، وگرنه Context برنامه (با FLAG_ACTIVITY_NEW_TASK). */
+    private Context contextForUi() {
+        return activity != null ? activity : context;
+    }
+
+    private Map<String, Object> scheduleWake(MethodCall call) {
+        Number at = call.argument("atMillis");
+        String reason = call.argument("reason");
+        String slot = call.argument("slot");
+        Map<String, Object> out = new HashMap<>();
+        if (at == null) {
+            out.put("mode", "failed");
+            return out;
+        }
+        out.put("mode", WakeScheduler.arm(context, slot == null ? "campaign" : slot,
+                at.longValue(), reason == null ? "schedule" : reason));
+        return out;
+    }
+
+    private Map<String, Object> wakeStatus() {
+        SharedPreferences prefs = WakeScheduler.prefs(context);
+        Map<String, Object> m = new HashMap<>();
+        m.put("canExact", WakeScheduler.canScheduleExact(context));
+        long next = 0L;
+        String nextReason = "";
+        for (Map.Entry<String, Long> e : WakeScheduler.pending(context).entrySet()) {
+            if (next == 0L || e.getValue() < next) {
+                next = e.getValue();
+                nextReason = prefs.getString("reason_" + e.getKey(), "");
+            }
+        }
+        m.put("nextWakeAt", next);
+        m.put("nextWakeReason", nextReason);
+        m.put("lastFiredAt", prefs.getLong("last_fired_at", 0L));
+        m.put("lastFiredReason", prefs.getString("last_fired_reason", ""));
+        m.put("lastStartedService", prefs.getBoolean("last_started_service", false));
+        m.put("lastError", prefs.getString("last_error", ""));
+        m.put("mode", next == 0L ? "none" : (WakeScheduler.canScheduleExact(context) ? "exact" : "inexact"));
         return m;
     }
 
@@ -308,6 +566,41 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** باتری و نوع شبکه، برای heartbeat به NM. */
+    private Map<String, Object> deviceState() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("battery", -1);
+        m.put("charging", false);
+        try {
+            Intent b = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (b != null) {
+                int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                if (level >= 0 && scale > 0) m.put("battery", level * 100 / scale);
+                m.put("charging", status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL);
+            }
+        } catch (Throwable ignored) {
+        }
+        String net = "none";
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            Network n = cm == null ? null : cm.getActiveNetwork();
+            if (n != null) {
+                NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (nc != null) {
+                    if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) net = "wifi";
+                    else if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) net = "mobile";
+                    else net = "other";
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        m.put("network", net);
+        return m;
     }
 
     // ───────────────────────── SIM list ─────────────────────────
@@ -492,6 +785,9 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         final String message = call.argument("message");
         Integer subArg = call.argument("subId");
         final int subId = subArg == null ? -1 : subArg;
+        final String ref = call.argument("ref");
+        Boolean deliveryArg = call.argument("delivery");
+        final boolean wantDelivery = deliveryArg != null && deliveryArg && ref != null && !ref.isEmpty();
 
         if (to == null || to.trim().isEmpty() || message == null || message.isEmpty()) {
             result.success(failure(-105, "destination or message is empty", subId));
@@ -511,7 +807,7 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         }
 
         final int reqId = REQUEST_COUNTER.getAndIncrement();
-        final String action = context.getPackageName() + ".SMS_BRIDGE_SENT_" + reqId;
+        final String action = context.getPackageName() + ".SMS_BRIDGE_SENT_" + PROCESS_STAMP + "_" + reqId;
         SendTracker tracker = null;
         boolean registered = false;
 
@@ -544,15 +840,24 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
             mainHandler.postDelayed(tracker.timeout, SEND_TIMEOUT_MS);
 
             ArrayList<PendingIntent> sentList = new ArrayList<>();
+            ArrayList<PendingIntent> deliveryList = wantDelivery ? new ArrayList<PendingIntent>() : null;
             for (int p = 0; p < total; p++) {
                 Intent in = new Intent(action).setPackage(context.getPackageName());
                 sentList.add(sentIntent((reqId * 64 + p) & 0x7fffffff, in));
+                if (wantDelivery) {
+                    Intent din = new Intent(context, DeliveryReceiver.class);
+                    din.putExtra("ref", ref);
+                    din.putExtra("part", p);
+                    din.putExtra("total", total);
+                    deliveryList.add(sentIntent((reqId * 64 + p) & 0x7fffffff, din));
+                }
             }
 
             if (total == 1) {
-                sm.sendTextMessage(to, null, message, sentList.get(0), null);
+                sm.sendTextMessage(to, null, message, sentList.get(0),
+                        wantDelivery ? deliveryList.get(0) : null);
             } else {
-                sm.sendMultipartTextMessage(to, null, parts, sentList, null);
+                sm.sendMultipartTextMessage(to, null, parts, sentList, deliveryList);
             }
             // نتیجه از طریق SendTracker برمی‌گردد
         } catch (Throwable t) {
@@ -570,8 +875,13 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
 
     // ───────────────────────── wake / wifi locks ─────────────────────────
 
-    @SuppressWarnings("deprecation")
     private void acquireLocks() {
+        acquireCpuLock();
+        acquireWifiLock();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void acquireCpuLock() {
         try {
             if (wakeLock == null) {
                 PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
@@ -583,6 +893,10 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
             if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         } catch (Throwable ignored) {
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void acquireWifiLock() {
         try {
             if (wifiLock == null) {
                 WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
@@ -599,11 +913,34 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         }
     }
 
+    /** قفل‌ها را روی وضعیت دلخواه می‌گذارد؛ با خاموش‌شدن CPU قفل افزونه‌ی سرویس هم آزاد می‌شود. */
+    private void setLocks(boolean cpu, boolean wifi) {
+        if (cpu) {
+            acquireCpuLock();
+        } else {
+            releaseCpuLock();
+            WakeScheduler.releasePluginWakeLock();
+        }
+        if (wifi) {
+            acquireWifiLock();
+        } else {
+            releaseWifiLock();
+        }
+    }
+
     private void releaseLocks() {
+        releaseCpuLock();
+        releaseWifiLock();
+    }
+
+    private void releaseCpuLock() {
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         } catch (Throwable ignored) {
         }
+    }
+
+    private void releaseWifiLock() {
         try {
             if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         } catch (Throwable ignored) {

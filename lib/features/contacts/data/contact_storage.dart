@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:untitled3/core/storage/app_storage.dart';
-import 'package:untitled3/features/contacts/domain/contact.dart';
+import 'package:nm_mobile/core/storage/app_storage.dart';
+import 'package:nm_mobile/features/contacts/domain/contact.dart';
 
 class ContactStorage {
   static Future<File> _file() async {

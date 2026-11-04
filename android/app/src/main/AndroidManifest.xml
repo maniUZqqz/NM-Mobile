@@ -1,12 +1,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- فقط ارسال پیامک لازم است؛ READ_SMS / RECEIVE_SMS حذف شد تا درخواست مجوز کمتر و ساده‌تر شود -->
+    <!-- ارسال پیامک‌های صف NM با سیم‌کارت گوشی -->
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- دریافت پیامک: فقط برای ثبت «لغو/stop» (و ارسال پیامک‌های دریافتی اگر در NM روشن شود). READ_SMS لازم نیست. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- لیست و انتخاب سیم‌کارت -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- تماس‌ها: شماره‌ی تماس‌گیرنده هنگام زنگ، و ثبت تماس‌ها در NM -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- فایل‌های صوتیِ ضبط‌کنندهٔ داخلیِ گوشی (MediaStore) — میکروفون و دسترس‌پذیری لازم نیست -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- زمان‌بندی دقیق (آلارم) برای زنده‌ماندن سرویس و کمپین‌های زمان‌بندی‌شده -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <!-- شماره‌ی تماسِ خروجی هنگام گرفتن (ممکن است در بعضی نسخه‌های اندروید کار نکند) -->
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <!-- نمایش دستیار تماس روی صفحه هنگام زنگ -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- سرویس پس‌زمینه -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -28,9 +46,10 @@
         android:required="false" />
 
     <application
-        android:label="sms_1"
+        android:label="NM Mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -69,6 +88,16 @@
     </application>
 
     <queries>
+        <!-- برای اینکه بفهمیم کدام پیام‌رسان نصب است (دکمه‌های «باز کردن در …») -->
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="ir.eitaa.messenger" />
+        <package android:name="ir.nasim" />
+        <package android:name="mobi.mmdt.ottplus" />
+        <package android:name="app.rbmain.a" />
+        <package android:name="ir.resaneh1.iptv" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />

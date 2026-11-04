@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sms_bridge/sms_bridge.dart';
-import 'package:untitled3/features/settings/domain/server_config.dart';
+import 'package:nm_mobile/features/settings/domain/server_config.dart';
 
 void main() {
   group('ServerConfig', () {

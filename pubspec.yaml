@@ -1,8 +1,8 @@
-name: untitled3
-description: "A new Flutter project."
+name: nm_mobile
+description: "NM-Mobile: Android companion app of the NM platform (monitoring, SMS gateway, calls, in-call assistant)."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.1.0+1
 
 environment:
   sdk: ^3.9.2
@@ -17,6 +17,7 @@ dependencies:
   sms_bridge:
     path: packages/sms_bridge
   flutter_background_service: ^5.1.0
+  flutter_inappwebview: 6.2.0-beta.3
 
 
 
@@ -27,3 +28,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/lookup/
+    - assets/messengers.json

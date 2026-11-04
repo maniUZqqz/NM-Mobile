@@ -1,0 +1,115 @@
+[
+  {
+    "key": "telegram",
+    "label_fa": "تلگرام",
+    "label_en": "Telegram",
+    "alive": "yes",
+    "android_packages": ["org.telegram.messenger", "org.telegram.messenger.web"],
+    "phone_links": [
+      {
+        "template": "https://t.me/+{digits}",
+        "example": "https://t.me/+989121234567",
+        "number_format": "فقط رقم، قالب بین‌المللی با کد کشور، بدون صفرِ ابتدایی داخلی (۰۹۱۲… ← ۹۸۹۱۲…). علامت + بخشی از لینک است. اپ تلگرام + اضافه را هم در tg://resolve?phone=+… می‌پذیرد و حذف می‌کند.",
+        "source": "https://core.telegram.org/api/links (بخش Phone number links) ؛ https://telegram.org/faq (پرسش «How does t.me work?»: t.me/+123456789 «international format»)؛ https://core.telegram.org/method/contacts.resolvePhone (phone: «in international format»)"
+      },
+      {
+        "template": "tg://resolve?phone={digits}",
+        "example": "tg://resolve?phone=989121234567",
+        "number_format": "همان قالب بین‌المللی، فقط ارقام",
+        "source": "https://core.telegram.org/api/links (tg://resolve?phone=<phone_number>&text=<draft_text>&profile) ؛ کد متن‌بازِ اپ: https://github.com/DrKLO/Telegram/blob/master/TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java (data.getQueryParameter(\"phone\")، حذف + ابتدایی)"
+      }
+    ],
+    "username_links": [
+      {"template": "https://t.me/{username}", "source": "https://core.telegram.org/api/links (Public username links)؛ https://telegram.org/faq"},
+      {"template": "tg://resolve?domain={username}", "source": "https://core.telegram.org/api/links"}
+    ],
+    "supports_phone_deeplink": "yes",
+    "notes_fa": "لینکِ شماره‌دار رسمی و مستند است. اما فقط وقتی چت باز می‌شود که حریم خصوصیِ طرف اجازهٔ «پیدا شدن با شماره» بدهد (تلگرام FAQ). اگر شماره در تلگرام نباشد یا حریم خصوصی اجازه ندهد، اپ پیام «There is no Telegram account with this phone number.» نشان می‌دهد (رشتهٔ NoPhoneFound در کد رسمی)؛ API هم خطای PHONE_NOT_OCCUPIED می‌دهد و بین «حساب ندارد» و «حریم خصوصی بسته است» تفاوتی نمی‌گذارد. امکان ?text=<پیام> برای متنِ از پیش نوشته هم در مستندات هست. نام بسته: org.telegram.messenger (گوگل‌پلی) و org.telegram.messenger.web (نسخهٔ APK سایت رسمی) طبق build.gradle مخزن رسمی."
+  },
+  {
+    "key": "whatsapp",
+    "label_fa": "واتساپ",
+    "label_en": "WhatsApp",
+    "alive": "yes",
+    "android_packages": ["com.whatsapp", "com.whatsapp.w4b"],
+    "phone_links": [
+      {
+        "template": "https://wa.me/{digits}",
+        "example": "https://wa.me/989121234567",
+        "number_format": "فقط رقم با کد کشور؛ بدون +، بدون صفرِ ابتدایی، بدون خط تیره/پرانتز/فاصله (۰۹۱۲… ← ۹۸۹۱۲…)",
+        "source": "منبع ثانویه (صفحهٔ رسمی faq.whatsapp.com/5913398998672934 با عنوان «How to use click to chat» وجود دارد ولی با جاوااسکریپت ساخته می‌شود و متنش قابل استخراج نبود): پشتیبانی tyntec https://www.tyntec.com/helpcenter/docs/faqs/whatsapp-business/your-whatsapp-account/how-can-i-add-a-whatsapp-conversation-button-on-my-website/ (مثال صحیح https://wa.me/15551234567؛ نادرست با + و پرانتز و خط تیره)"
+      },
+      {
+        "template": "whatsapp://send?phone={digits}",
+        "example": "whatsapp://send?phone=989121234567",
+        "number_format": "همان قالب wa.me",
+        "source": "منبع ثانویهٔ ضعیف: بحث‌های توسعه‌دهندگان (b4x.com/android/forum/threads/how-to-open-chat-with-whatsapp-for-business-number.100028). مستند رسمی دریافت نشد؛ پیش از استفاده روی گوشی آزمایش شود."
+      }
+    ],
+    "username_links": [],
+    "supports_phone_deeplink": "yes",
+    "notes_fa": "واتساپ برای باز کردن چت با شماره نیازی به مخاطب بودن ندارد (منابع ثانویه). اگر شماره در واتساپ ثبت نشده یا قالب نادرست باشد، منابع ثانویه پیام «Phone number shared via url is invalid» را گزارش کرده‌اند (تأیید رسمی نشده). لینک فقط چت را باز می‌کند و پیام را کاربر خودش می‌فرستد. بستهٔ واتساپ بیزینس com.whatsapp.w4b است (منابع ثانویه: pub.dev flutter_whatsapp_stickers و انجمن b4x)؛ برای canLaunchUrl روی اندروید ۱۱+ باید در queries اعلام شود. لینک نام‌کاربری برای واتساپ: تأیید نشده. وضعیت دسترسی/فیلترینگ واتساپ در ایران در ۱۴۰۵: تأیید نشده."
+  },
+  {
+    "key": "eitaa",
+    "label_fa": "ایتا",
+    "label_en": "Eitaa",
+    "alive": "yes",
+    "android_packages": ["ir.eitaa.messenger"],
+    "phone_links": [],
+    "username_links": [
+      {"template": "https://eitaa.com/{username}", "source": "صفحهٔ رسمی https://eitaa.com (پیوند https://eitaa.com/eitaa_ads)؛ مانیفستِ APK رسمی نسخهٔ 7.1.8: دامنه‌های eitaa.com / eitaa.ir / eitaa.net با https/http برای VIEW ثبت شده‌اند"}
+    ],
+    "supports_phone_deeplink": "unverified",
+    "candidates_unverified_do_not_use": [
+      {
+        "template": "https://eitaa.com/+{digits}",
+        "evidence": "رشتهٔ «https://eitaa.com/+%s» داخل classes4.dex نسخهٔ 7.1.8 (ممکن است برای لینک دعوت باشد نه شماره)"
+      },
+      {
+        "template": "et://resolve?phone={digits}",
+        "evidence": "رشته‌های «et://resolve» و «et:resolve» و کلاس TL_contacts_resolvePhone و رشتهٔ NoPhoneFound در dex؛ مانیفست scheme=et را ثبت کرده. این تقلیدی از tg://resolve?phone است و رسمی/مستند نیست."
+      }
+    ],
+    "notes_fa": "ایتا (فورکِ کلاینت تلگرام) هیچ مستندِ رسمیِ لینکِ شماره‌دار ندارد: developer.eitaa.com فقط SDK برنامک‌ها (openEitaaLink, requestContact) را توضیح می‌دهد. شواهدِ ایستا (رشته‌های APK) نشان می‌دهد کد مشابه تلگرام داخل اپ هست، ولی چون مستند نیست و روی گوشی آزمایش نشده، در اپ NM استفاده نمی‌شود. تنها راه مجاز: ذخیرهٔ شماره به‌عنوان مخاطب گوشی؛ اگر ایتا همگام‌سازی مخاطبین را انجام دهد، مانیفست ایتا نوع‌داده‌های ContactsContract با پسوند .android.profile را ثبت کرده (vnd.android.cursor.item/vnd.org.eitaa.messenger.android.profile) یعنی کارت مخاطبِ گوشی می‌تواند دکمهٔ «ایتا» نشان دهد (روی دستگاه آزمایش نشده). حریم خصوصی رسمی ایتا: شماره فقط به کسانی نشان داده می‌شود که شما را ذخیره کرده‌اند؛ همگام‌سازی مخاطبین با اجازهٔ کاربر است (https://eitaa.com/page/privacy/ بند ۲.۴)."
+  },
+  {
+    "key": "bale",
+    "label_fa": "بله",
+    "label_en": "Bale",
+    "alive": "yes",
+    "android_packages": ["ir.nasim"],
+    "phone_links": [],
+    "username_links": [
+      {"template": "https://ble.ir/{username}", "source": "مستندات رسمی https://docs.bale.ai (قالب ble.ir/<bot_username>?start=<parameter>، نمونه‌ها ble.ir/botfather و ble.ir/supportbot). برای نام‌کاربری کاربرِ عادی (نه بازو) مستند صریح دریافت نشد؛ همان قالب به‌عنوان فرض محتمل، تأیید نشده."}
+    ],
+    "supports_phone_deeplink": "no",
+    "notes_fa": "ندارد (در مستندات رسمی). مستندات https://docs.bale.ai و راهنمای مینی‌اپ فقط لینکِ بازو/مینی‌اپ (ble.ir/<bot>?start و ?startapp) را شرح می‌دهند. وجود قابلیتِ بی‌مستند رد نشده ولی تأیید هم نشده. فعال بودن: صفحهٔ مایکت نسخهٔ 10.1.10 (آخرین به‌روزرسانی ۱۴۰۵/۰۲/۱۲، ۲۵ میلیون دانلود) نام بسته ir.nasim را نشان می‌دهد (https://myket.ir/app/ir.nasim). تنها راه مجاز: ذخیرهٔ شماره به‌عنوان مخاطب و باز کردن خود اپ بله."
+  },
+  {
+    "key": "soroush",
+    "label_fa": "سروش (سروش پلاس)",
+    "label_en": "Soroush Plus",
+    "alive": "yes",
+    "android_packages": ["mobi.mmdt.ottplus"],
+    "phone_links": [],
+    "username_links": [
+      {"template": "https://splus.ir/{username}", "source": "سایت رسمی https://soroushplus.com (پیوندهای https://splus.ir/soroushplus ، https://splus.ir/botfather ، https://splus.ir/support) و مانیفست APK رسمی 8.1.1.0 (دامنهٔ splus.ir برای VIEW)"}
+    ],
+    "supports_phone_deeplink": "unverified",
+    "notes_fa": "فعال: سروش پلاس نسخهٔ 8.1.1.0 در بازار (به‌روزرسانی ۲۰۲۶-۱۰-۲۴) و مایکت (۱۴۰۵/۰۸/۰۲) هست؛ «سروش» قدیمیِ صداوسیما محصول جدا/متروک تلقی می‌شود و وضعیتش تأیید نشده. لینکِ شماره‌دار رسمی ندارد (مستندات توسعه‌دهندگان در soroushplus.com/p/documents فقط API بازو در api.splus.ir را شرح می‌دهد). مانیفست یک scheme سفارشیِ soroush:// هم ثبت کرده ولی قالب و کاربردش مستند نیست — استفاده نشود. نوع‌دادهٔ پروفایل مخاطب (…ottplus.android.profile) ثبت شده؛ روی دستگاه آزمایش نشده."
+  },
+  {
+    "key": "rubika",
+    "label_fa": "روبیکا",
+    "label_en": "Rubika",
+    "alive": "yes",
+    "android_packages": ["app.rbmain.a", "ir.resaneh1.iptv"],
+    "phone_links": [],
+    "username_links": [
+      {"template": "https://rubika.ir/{username}", "source": "سایت/پرسش‌های متداول رسمی https://rubika.ir/faq (پیوند rubika.ir/supportbot)، صفحهٔ اصلی https://rubika.ir (go.rubika.ir/supportbot). زومیت یک‌بار گزارش داده نمایش پروفایل از rubika.ir/نام‌کاربری قطع شده بود (تاریخ نامعلوم) ← قابل‌اتکا بودنش تأیید نشده."}
+    ],
+    "supports_phone_deeplink": "unverified",
+    "notes_fa": "بستهٔ فعلی app.rbmain.a (مایکت: نسخهٔ 4.1.1، ۱۴۰۵/۰۷/۲۷، ۴۵ میلیون دانلود؛ آدرس ir.resaneh1.iptv در مایکت به آن هدایت می‌شود). صفحهٔ ir.resaneh1.iptv در بازار «به درخواست مالک غیرفعال» است. لینک شماره‌دار رسمی مستند نیست (https://rubika.ir/botapi فقط API بازو). اسکیمِ سفارشیِ اپ در مانیفست با منبع (resource) تعریف شده و رمزگشایی نشد ← تأیید نشده. نوع‌دادهٔ پروفایل مخاطب (org.rbmain.messenger.android.profile) ثبت شده؛ روی دستگاه آزمایش نشده."
+  }
+]

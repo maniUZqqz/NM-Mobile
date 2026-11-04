@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sms_bridge/sms_bridge.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/features/logs/presentation/log_style.dart';
-import 'package:untitled3/features/settings/domain/server_config.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/features/settings/domain/server_config.dart';
 
 class SettingsTab extends StatelessWidget {
   const SettingsTab({
@@ -16,6 +15,9 @@ class SettingsTab extends StatelessWidget {
     required this.onOpenPermissions,
     required this.onStart,
     required this.onStop,
+    this.onOpenCalls,
+    this.onOpenSendSettings,
+    this.onOpenOptOut,
   });
 
   final ServerConfig config;
@@ -27,6 +29,9 @@ class SettingsTab extends StatelessWidget {
   final VoidCallback onOpenPermissions;
   final VoidCallback onStart;
   final VoidCallback onStop;
+  final VoidCallback? onOpenCalls;
+  final VoidCallback? onOpenSendSettings;
+  final VoidCallback? onOpenOptOut;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +57,7 @@ class SettingsTab extends StatelessWidget {
           icon: Icons.dns_rounded,
           color: AppColors.secondary,
           title: 'تنظیمات سرور',
-          subtitle: 'آدرس و مسیرهای دریافت و ثبت کد',
+          subtitle: 'اتصال این گوشی به NM',
           onTap: onOpenServer,
           children: [
             _ValueLine(
@@ -61,7 +66,7 @@ class SettingsTab extends StatelessWidget {
               direction: TextDirection.ltr,
             ),
             _ValueLine(
-              label: 'دریافت',
+              label: 'صف پیامک',
               value: config.otpPath,
               direction: TextDirection.ltr,
             ),
@@ -76,13 +81,48 @@ class SettingsTab extends StatelessWidget {
           onTap: onOpenSms,
           children: [
             _ValueLine(label: 'خط ارسال', value: config.simTitle),
-            _ValueLine(
-              label: 'نمونه',
-              value: config.previewMessage,
-              direction: dirFor(config.previewMessage),
+            const _ValueLine(
+              label: 'متن پیامک',
+              value: 'از NM می‌آید',
             ),
           ],
         ),
+        if (onOpenSendSettings != null || onOpenOptOut != null) ...[
+          const SizedBox(height: 10),
+          if (onOpenSendSettings != null)
+            _SimpleSettingsCard(
+              icon: Icons.speed_rounded,
+              color: AppColors.warning,
+              title: 'احتیاط در ارسال',
+              subtitle: 'فاصله‌ی پیامک‌ها، سقف ساعتی و تلاش دوباره',
+              onTap: onOpenSendSettings!,
+            ),
+          if (onOpenOptOut != null) ...[
+            const SizedBox(height: 10),
+            _SimpleSettingsCard(
+              icon: Icons.block_rounded,
+              color: AppColors.error,
+              title: 'فهرست لغو',
+              subtitle: 'شماره‌هایی که دیگر پیامک نمی‌گیرند',
+              onTap: onOpenOptOut!,
+            ),
+          ],
+        ],
+        if (onOpenCalls != null) ...[
+          const SizedBox(height: 20),
+          const _SettingsSectionTitle(
+            title: 'ضبط تماس',
+            subtitle: 'ضبط، متن مکالمه و جست‌وجو',
+          ),
+          const SizedBox(height: 10),
+          _SimpleSettingsCard(
+            icon: Icons.phone_in_talk_rounded,
+            color: AppColors.primary,
+            title: 'ضبط تماس و تبدیل به متن',
+            subtitle: 'راهنمای فعال‌سازی، سرویس متن و ارسال به سرور',
+            onTap: onOpenCalls!,
+          ),
+        ],
         const SizedBox(height: 20),
         const _SettingsSectionTitle(
           title: 'دسترسی و پایداری',
@@ -159,6 +199,79 @@ class SettingsTab extends StatelessWidget {
   String get _deviceName {
     final value = '${bridgeStatus.manufacturer} ${bridgeStatus.model}'.trim();
     return value.isEmpty ? 'نامشخص' : value;
+  }
+}
+
+class _SimpleSettingsCard extends StatelessWidget {
+  const _SimpleSettingsCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_left_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

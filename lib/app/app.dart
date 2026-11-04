@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/features/home/presentation/home_page.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/app/root_gate.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -11,7 +11,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'SMS Gateway',
+      title: 'NM Mobile',
       theme: AppTheme.dark(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.dark,
@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
         ),
         child: Directionality(textDirection: TextDirection.rtl, child: child!),
       ),
-      home: const HomePage(),
+      home: const RootGate(),
     );
   }
 }

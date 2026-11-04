@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/features/campaigns/presentation/campaign_editor_page.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/features/campaigns/presentation/campaign_editor_page.dart';
 
 void main() {
   Widget testShell(Widget child) {
