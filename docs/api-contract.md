@@ -338,3 +338,21 @@ pulls it:
 `numbers` are normalised digits (with country code) of the global opt-out list, oldest first; `next_since`
 is the cursor to send as `since` next time (the app stores it). If the server does not have this endpoint
 (404/405) the app silently skips it. Poll interval: every 10 minutes.
+
+---
+## Notes added with the implementation (NM backend `apps/mobile`, deployed)
+
+* `GET calls/<uid>/` also returns `"profiles": [<profile object>]` (latest per platform) and `"consent": {...}`.
+* `POST lookups/` (the phone submits what it read) and `GET lookups/?number=` (timeline) share the path; `POST` is device-only.
+* Phone numbers are matched across sources by their last 10 digits; customers/prospects are visible only for stores the staff user
+  belongs to (a superuser sees all stores).
+* Device tokens are random strings (`nmd_...`) stored hashed; they are not signed with the Django SECRET_KEY.
+* Throttle: 300 requests/minute per device, 10 pairing attempts/minute per IP, and a 15-minute lock after 8 wrong passwords.
+
+## Panel endpoints (staff login / JWT — a phone token gets `403 panel_only`)
+
+`GET admin/overview/`, `GET admin/devices/`, `PATCH|DELETE admin/devices/<uid>/`, `POST admin/devices/<uid>/revoke/`,
+`GET|POST sms/queue/`, `POST sms/<uid>/cancel/`, `GET|POST admin/optouts/`, `DELETE admin/optouts/<id>/`,
+`GET|POST admin/approvals/`, `POST admin/approvals/<id>/revoke/`, `GET admin/consents/`, `GET|PATCH admin/settings/`,
+`GET admin/products/`, `PATCH admin/products/<id>/pricing/`, `GET admin/lookups/`, `GET|POST admin/lookups/telegram/`
+(`{"action": "save_api|send_code|code|password|unlink", ...}`), `GET admin/actions-log/`.
