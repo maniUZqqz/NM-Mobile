@@ -121,6 +121,9 @@ class BridgeStatus {
   final int sdk;
   final String manufacturer;
   final String model;
+  final bool receiveSms;
+  final bool callLog;
+  final bool contacts;
 
   const BridgeStatus({
     required this.available,
@@ -134,6 +137,9 @@ class BridgeStatus {
     required this.sdk,
     required this.manufacturer,
     required this.model,
+    this.receiveSms = false,
+    this.callLog = false,
+    this.contacts = false,
   });
 
   static const BridgeStatus unknown = BridgeStatus(
@@ -162,7 +168,86 @@ class BridgeStatus {
         sdk: _i(m['sdk'], 0),
         manufacturer: _s(m['manufacturer']),
         model: _s(m['model']),
+        receiveSms: _b(m['receiveSms'], false),
+        callLog: _b(m['callLog'], false),
+        contacts: _b(m['contacts'], false),
       );
+}
+
+/// پیامکِ دریافتی که گیرندهٔ بومی در صف گذاشته است.
+class IncomingSms {
+  const IncomingSms({
+    required this.from,
+    required this.body,
+    required this.at,
+    this.subId = -1,
+    this.slot = -1,
+  });
+
+  factory IncomingSms.fromMap(Map<String, dynamic> m) => IncomingSms(
+        from: _s(m['from']),
+        body: _s(m['body']),
+        at: DateTime.fromMillisecondsSinceEpoch(_i(m['at'], 0)),
+        subId: _i(m['subId'], -1),
+        slot: _i(m['slot'], -1),
+      );
+
+  final String from;
+  final String body;
+  final DateTime at;
+  final int subId;
+  final int slot;
+}
+
+/// گزارش تحویلِ یک بخش از یک پیامک (ref = uid در NM).
+class DeliveryEvent {
+  const DeliveryEvent({
+    required this.ref,
+    required this.part,
+    required this.total,
+    required this.ok,
+    required this.status,
+  });
+
+  factory DeliveryEvent.fromMap(Map<String, dynamic> m) => DeliveryEvent(
+        ref: _s(m['ref']),
+        part: _i(m['part'], 0),
+        total: _i(m['total'], 1),
+        ok: _b(m['ok'], false),
+        status: _i(m['status'], -1),
+      );
+
+  final String ref;
+  final int part;
+  final int total;
+
+  /// گزارش از اپراتور رسید
+  final bool ok;
+
+  /// کد وضعیت SMS-STATUS-REPORT؛ ۰ تا ۳۱ یعنی تحویل شد، ۶۴ به بالا شکست دائمی
+  final int status;
+
+  bool get delivered => ok && (status < 0 || status < 32);
+  bool get failed => !ok || status >= 64;
+}
+
+/// باتری و شبکه، برای heartbeat
+class DeviceState {
+  const DeviceState({
+    this.battery = -1,
+    this.charging = false,
+    this.network = 'none',
+  });
+
+  factory DeviceState.fromMap(Map<String, dynamic> m) => DeviceState(
+        battery: _i(m['battery'], -1),
+        charging: _b(m['charging'], false),
+        network: _s(m['network']).isEmpty ? 'none' : _s(m['network']),
+      );
+
+  final int battery;
+  final bool charging;
+  final String network;
 }
 
 class PickedContactFile {
@@ -236,12 +321,16 @@ class SmsBridge {
     required String to,
     required String message,
     int subId = -1,
+    String? ref,
+    bool delivery = false,
   }) async {
     try {
       final m = await _ch.invokeMapMethod<String, dynamic>('sendSms', {
         'to': to,
         'message': message,
         'subId': subId,
+        'ref': ref ?? '',
+        'delivery': delivery,
       }).timeout(const Duration(seconds: 75));
       if (m == null) {
         return SmsSendResult.failure(-102, 'پاسخ خالی از لایه بومی',
@@ -258,6 +347,46 @@ class SmsBridge {
           subId: subId);
     } catch (e) {
       return SmsSendResult.failure(-102, e.toString(), subId: subId);
+    }
+  }
+
+  static List<Map<String, dynamic>> _maps(dynamic raw) {
+    final out = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) out.add(Map<String, dynamic>.from(e));
+      }
+    }
+    return out;
+  }
+
+  /// پیامک‌های دریافتی از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<IncomingSms>> drainIncoming() async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainIncoming');
+      return _maps(raw).map(IncomingSms.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// گزارش‌های تحویل رسیده از آخرین بار (صف بومی را خالی می‌کند).
+  static Future<List<DeliveryEvent>> drainDelivery() async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('drainDelivery');
+      return _maps(raw).map(DeliveryEvent.fromMap).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<DeviceState> deviceState() async {
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('deviceState');
+      if (m == null) return const DeviceState();
+      return DeviceState.fromMap(m);
+    } catch (_) {
+      return const DeviceState();
     }
   }
 

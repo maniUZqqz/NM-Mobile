@@ -10,7 +10,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
@@ -135,6 +139,15 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
                     break;
                 case "pickContactFile":
                     pickContactFile(result);
+                    break;
+                case "deviceState":
+                    result.success(deviceState());
+                    break;
+                case "drainIncoming":
+                    result.success(Queues.drain(context, Queues.INCOMING_SMS));
+                    break;
+                case "drainDelivery":
+                    result.success(Queues.drain(context, Queues.SMS_DELIVERY));
                     break;
                 case "acquireLocks":
                     acquireLocks();
@@ -274,6 +287,9 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("sendSms", has(Manifest.permission.SEND_SMS));
         m.put("phoneState", has(Manifest.permission.READ_PHONE_STATE));
         m.put("phoneNumbers", Build.VERSION.SDK_INT < 26 || has(Manifest.permission.READ_PHONE_NUMBERS));
+        m.put("receiveSms", has(Manifest.permission.RECEIVE_SMS));
+        m.put("callLog", has(Manifest.permission.READ_CALL_LOG));
+        m.put("contacts", has(Manifest.permission.READ_CONTACTS));
         m.put("notifications", notificationsEnabled());
         m.put("battery", ignoringBatteryOptimizations());
         m.put("airplane", airplaneMode());
@@ -308,6 +324,41 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** باتری و نوع شبکه، برای heartbeat به NM. */
+    private Map<String, Object> deviceState() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("battery", -1);
+        m.put("charging", false);
+        try {
+            Intent b = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (b != null) {
+                int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                if (level >= 0 && scale > 0) m.put("battery", level * 100 / scale);
+                m.put("charging", status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL);
+            }
+        } catch (Throwable ignored) {
+        }
+        String net = "none";
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            Network n = cm == null ? null : cm.getActiveNetwork();
+            if (n != null) {
+                NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (nc != null) {
+                    if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) net = "wifi";
+                    else if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) net = "mobile";
+                    else net = "other";
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        m.put("network", net);
+        return m;
     }
 
     // ───────────────────────── SIM list ─────────────────────────
@@ -492,6 +543,9 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         final String message = call.argument("message");
         Integer subArg = call.argument("subId");
         final int subId = subArg == null ? -1 : subArg;
+        final String ref = call.argument("ref");
+        Boolean deliveryArg = call.argument("delivery");
+        final boolean wantDelivery = deliveryArg != null && deliveryArg && ref != null && !ref.isEmpty();
 
         if (to == null || to.trim().isEmpty() || message == null || message.isEmpty()) {
             result.success(failure(-105, "destination or message is empty", subId));
@@ -544,15 +598,24 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
             mainHandler.postDelayed(tracker.timeout, SEND_TIMEOUT_MS);
 
             ArrayList<PendingIntent> sentList = new ArrayList<>();
+            ArrayList<PendingIntent> deliveryList = wantDelivery ? new ArrayList<PendingIntent>() : null;
             for (int p = 0; p < total; p++) {
                 Intent in = new Intent(action).setPackage(context.getPackageName());
                 sentList.add(sentIntent((reqId * 64 + p) & 0x7fffffff, in));
+                if (wantDelivery) {
+                    Intent din = new Intent(context, DeliveryReceiver.class);
+                    din.putExtra("ref", ref);
+                    din.putExtra("part", p);
+                    din.putExtra("total", total);
+                    deliveryList.add(sentIntent((reqId * 64 + p) & 0x7fffffff, din));
+                }
             }
 
             if (total == 1) {
-                sm.sendTextMessage(to, null, message, sentList.get(0), null);
+                sm.sendTextMessage(to, null, message, sentList.get(0),
+                        wantDelivery ? deliveryList.get(0) : null);
             } else {
-                sm.sendMultipartTextMessage(to, null, parts, sentList, null);
+                sm.sendMultipartTextMessage(to, null, parts, sentList, deliveryList);
             }
             // نتیجه از طریق SendTracker برمی‌گردد
         } catch (Throwable t) {

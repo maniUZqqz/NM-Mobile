@@ -2,6 +2,7 @@
     package="com.amirali.smsbridge">
 
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,5 +11,23 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- پیامک دریافتی (برای ثبت «لغو/stop» و در صورت روشن‌بودن، ارسال به NM).
+             فقط خودِ سیستم می‌تواند این broadcast را بفرستد (BROADCAST_SMS). -->
+        <receiver
+            android:name="com.amirali.smsbridge.IncomingSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- گزارش تحویل پیامک؛ فقط از طریق PendingIntent خودِ برنامه فراخوانی می‌شود -->
+        <receiver
+            android:name="com.amirali.smsbridge.DeliveryReceiver"
+            android:exported="false" />
+    </application>
 
 </manifest>
