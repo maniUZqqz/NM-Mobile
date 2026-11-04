@@ -1,12 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- فقط ارسال پیامک لازم است؛ READ_SMS / RECEIVE_SMS حذف شد تا درخواست مجوز کمتر و ساده‌تر شود -->
+    <!-- ارسال پیامک‌های صف NM با سیم‌کارت گوشی -->
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- دریافت پیامک: فقط برای ثبت «لغو/stop» (و ارسال پیامک‌های دریافتی اگر در NM روشن شود). READ_SMS لازم نیست. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- لیست و انتخاب سیم‌کارت -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- تماس‌ها: شماره‌ی تماس‌گیرنده هنگام زنگ، و ثبت تماس‌ها در NM -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- شماره‌ی تماسِ خروجی هنگام گرفتن (ممکن است در بعضی نسخه‌های اندروید کار نکند) -->
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <!-- نمایش دستیار تماس روی صفحه هنگام زنگ -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- سرویس پس‌زمینه -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
