@@ -1,30 +1,38 @@
-# انتقال از SMS-and-call (وضعیت: هنوز «نشسته» نیست)
+# انتقال از SMS-and-call (وضعیت: انجام شد)
 
-پروژهٔ دوم، [`maniUZqqz/SMS-and-call`](https://github.com/maniUZqqz/SMS-and-call)، نسخهٔ مستقلِ همین برنامه است: **اصلاحِ زمان‌بندیِ پیامک** و **ماژول ضبط تماس + تبدیل به متن**. قرار بر این بود که بعد از «نشستن» آن‌ها در `main` همان کد را اینجا بیاوریم و تکرار نکنیم.
+[`maniUZqqz/SMS-and-call`](https://github.com/maniUZqqz/SMS-and-call) نسخهٔ مستقلِ همین برنامه است: **اصلاحِ زمان‌بندیِ پیامک** و **ماژول ضبط تماس**. بعد از اینکه این کارها در `main` آن مخزن نشست (کامیت‌های `567bad6`، `0a8da45`، `deb261a`، `4f5a680`) در NM-Mobile آمدند. روش: **ادغامِ سه‌طرفه** برای هر فایل (مبنا = نسخهٔ قبلی همان کامیت، «ما» = NM-Mobile، «آن‌ها» = SMS-and-call، با یکسان‌سازی نام بسته)، نه کپی کورکورانه. گیت‌وی NM (claim ⇒ ذخیره ⇒ ارسال ⇒ گزارش) همچنان منبع حقیقت است.
 
-## وضعیتِ زمانِ بررسی (۱۴۰۵/۰۸/۱۳ حدود ساعت ۱۰:۳۰ تهران)
+## چه چیزی آمد
 
-* `main` در SMS-and-call فقط یک کامیت دارد: «Initial import of sms_sender, unmodified». هیچ Release ای نیست و `/root/mobile-work/PIPELINE.md` هنوز ساخته نشده بود.
-* کار در شاخهٔ `dev/work` در جریان است (کامیت‌های `wip:`)، شامل:
-  * **زمان‌بندی:** `features/campaigns/domain/schedule_planner.dart`، `services/campaign_runner.dart`، `WakeScheduler.java` / `WakeReceiver.java` (آلارم دقیق)، `scheduler_health_card.dart`
-  * **ضبط تماس:** `features/calls/*` (`recording_scanner`, `recording_matcher`, `recording_pipeline`, `call_engine`, `transcription`, `brand_guide`, `call_setup_page`)، و بومی: `PhoneStateReceiver`, `RecorderEngine`, `CallRecorderAccessibilityService`, `CallMedia`, `OemSettings`
-  * **لغوِ دریافت:** `features/optout/*`
-* چون در `main` نشسته نیست، **چیزی از آن‌ها کپی نشد** (تا کار دوبل و ناهمگام نشود). کامیتِ مرجع برای وقتی که نشست: ثبت شود در پیامِ کامیتِ انتقال.
-
-## چه چیزی در NM-Mobile همین حالا هست (مخصوصِ NM)
-
-| قابلیت | کجا | رابط برای جایگزینی |
+| کامیتِ SMS-and-call | چه چیزی | کامیتِ NM-Mobile |
 |---|---|---|
-| ثبتِ زنده، لاگ تماس، شناسایی تماس‌گیرنده | `calls/services/call_cycle.dart` | — (وابسته به API ِ NM) |
-| منبع فایل‌های ضبط (فقط پوشهٔ ضبط‌کنندهٔ داخلی با SAF) | `calls/services/recording_source.dart` ⇒ `CallRecordingSource` | ماژول SMS-and-call می‌تواند این رابط را پیاده کند |
-| وصل‌کردن فایل به تماس | `calls/domain/recording_matcher.dart` | می‌شود با `recording_matcher` ِ آن‌ها یکی کرد |
-| دروازهٔ رضایت + آپلود به NM | `calls/services/recording_cycle.dart` | ثابت می‌ماند (قانون NM) |
-| ارسال پیامکِ صف NM | `gateway/services/sms_pipeline.dart` | — |
+| `567bad6` | اصلاح XLSX (خانه‌های self-closing)، تاریخ‌های امن در برابر منطقهٔ زمانی، `FileMutex` برای ذخیره‌ها، کلید شماره (`phoneKey`)، هستهٔ لغو (`optout.dart`)، `send_settings.dart`؛ آزمون‌ها (`07df2a9`: `regression_import_xlsx_test`) | `5f4ca35` |
+| `0a8da45` | **زمان‌بندی**: آلارم‌های بومی (`WakeScheduler` / `WakeReceiver`، با دوباره‌سازی بعد از ری‌استارت و تغییر ساعت)، `campaign_runner`، `schedule_planner`، `campaign_engine` بازنویسی‌شده (سقف ارسال، تلاش دوباره، لغو)، صفحهٔ لغو، کارت «سلامت زمان‌بندی»، `LockCoordinator`/`WakeHub`، `OemSettings`؛ آزمون‌ها (`campaign_runner_test`, `schedule_planner_test`, `scheduling_review_test`) | `d076171` |
+| `deb261a` | **ضبط تماس**: `recording_scanner` (واردکردن از پوشهٔ ضبط‌کنندهٔ گوشی با MediaStore)، `recording_matcher` (وصل‌کردن فایل به لاگ تماس)، `brand_guide`، `recording_repository`، `call_settings` (سبک‌شده)، `call_format`، صفحهٔ راه‌اندازی (بازنویسی برای NM)؛ بومی: `CallMedia` (لاگ تماس، فایل‌های صوتی، کپی)، `AudioPlayerBridge`، `ShareHelper`، FileProvider؛ آزمون‌ها (`recording_matcher_test`, `recording_flow_test`, `call_review_test`, `new_ui_test`، تطبیق‌یافته) | `d076171` (بومی)، `f930e2e`، `73e4278` |
+| `4f5a680` | CI/مستندات | نیامد؛ CI خودِ NM-Mobile است (Flutter ثابتِ `3.47.9`، همان فکرِ `PIPELINE.md`) |
 
-## وقتی نشست، چه باید کرد
+## یک پیاده‌سازی، نه دو تا
 
-1. `git log` ِ SMS-and-call را ببینید و کامیت‌هایِ «scheduling» و «call recording» را پیدا کنید.
-2. **زمان‌بندی:** `schedule_planner`/`campaign_runner`/`WakeScheduler` را بیاورید و `CampaignEngine` ِ محلیِ این برنامه (فقط برای کمپین‌های محلیِ مخاطب‌ها) را با آن عوض کنید. پیامک‌های **صف NM** با این کار کاری ندارند.
-3. **ضبط تماس:** `recording_scanner`/`transcription` را به‌شکل یک `CallRecordingSource` جدید بپوشانید. دقت: بخشی از ماژول آن‌ها **ضبط از راه AccessibilityService** است؛ طبق پژوهش ما (`docs/research/call-recording-feasibility.md`) این روش در اندروید ۱۰+ شکننده و در Google Play ممنوع است؛ اگر آورده شود باید پشت یک کلیدِ خاموشِ پیش‌فرض باشد.
-4. **تبدیل به متن** در NM-Mobile روی گوشی انجام **نمی‌شود**؛ فایل با رضایت به NM می‌رود و NM (سرور پردازش یا متیس، طبق اولویتِ مالک) آن را پیاده می‌کند. پس `transcription.dart` ِ آن‌ها لازم نیست.
-5. بخش بومی `sms_bridge` در دو پروژه متفاوت شده؛ هنگام ادغام، تغییراتِ NM-Mobile (`IncomingSmsReceiver`, `DeliveryReceiver`, `PhoneCallReceiver`, `CallSupport`, `Queues`) را نگه دارید.
+* **پیدا کردن ضبط:** فقط `recording_scanner` + `recording_matcher` + `brand_guide` ِ SMS-and-call. پیاده‌سازی قبلیِ من (انتخابِ پوشه با SAF، `CallRecordingSource`، `RecordingCycle`، matcher خودم) **حذف شد**؛ در تاریخچهٔ گیت (کامیت `7b50851`) هست. دلیل: همان کار را می‌کرد و کدِ آن‌ها برای برندها پوشهٔ مشخص و آزمون دارد. اگر روی گوشی‌ای فایلی در MediaStore دیده نشود، «انتخابِ پوشه با SAF» را می‌شود از همان کامیت برگرداند.
+* **لاگ تماس:** فقط `queryCallLog` ِ آن‌ها (`CallMedia`). خواننده‌ی خودم (`readCallLog`) حذف شد.
+* **گیرندهٔ وضعیت تماس:** `PhoneCallReceiver` ِ NM-Mobile می‌ماند (رویداد زنگ/گرفتن/پایان برای ثبت زنده در NM و دستیار تماس) و بعد از پایان تماس همان آلارم `call_ended` ِ `WakeScheduler` را می‌گذارد که `PhoneStateReceiver` ِ آن‌ها می‌گذاشت. `PhoneStateReceiver` ِ آن‌ها نیامد (وابسته به ضبط داخلی).
+* **ارسال و دروازهٔ رضایت:** `RecordingPipeline` ساختارِ صفِ آن‌ها (ادعای ضبط با lease، تلاش دوباره با فاصلهٔ فزاینده، `nextDueAt`) را نگه داشته ولی مرحله‌هایش NM است: لاگ تماس در NM ⇒ **رضایت** (`calls/consent/`؛ بدون رضایت فایل ارسال نمی‌شود، `needsConsent`) ⇒ `calls/<uid>/recording/` ⇒ پرسش از `calls/<uid>/` تا متن و یادداشت آماده شود (`ANALYSED`). `RecordingSync` جای `CallCycle` ِ آن‌ها (اسکن + پردازش صف) را می‌گیرد؛ `NmCallCycle` (ثبت زنده + ارسال لاگ تماس به NM) ویژهٔ NM است.
+
+## عمداً نیامد، و چرا
+
+| چه چیزی | وضعیت | دلیل |
+|---|---|---|
+| تبدیل به متن روی گوشی یا ابری (`transcription.dart`، `OpenAiCompatibleTranscriber`، `TranscriptionProvider`، آزمون‌هایش) | **حذف شد** (نه غیرفعال): در کد وجود ندارد و از رابط هم نمی‌شود رسید | تبدیل صدا به متن فقط در سرورِ NM انجام می‌شود (گرهٔ پردازش یا متیس طبق اولویتِ مالک)، با سیاست داده و رضایتِ NM |
+| ارسال به «سرور دلخواه» (`RemoteUploader`، `uploadUrl`، `uploadToken`) | **حذف شد** | صدای مشتری فقط باید به NM برود؛ آدرس دلخواه یعنی نشتِ خارج از سیاستِ NM |
+| ضبط داخلی با **AccessibilityService** (`CallRecorderAccessibilityService`، `RecorderEngine`، ضبط دستی، `smsbridge_accessibility.xml`، دسترسی میکروفون `RECORD_AUDIO`) | **حذف شد**؛ در manifest و رابط نیست و مجوز دسترس‌پذیری هرگز خواسته نمی‌شود (نه حتی پشتِ کلید) | ۱) سیاستِ Google Play ضبط تماس با دسترس‌پذیری را ممنوع می‌کند؛ ۲) از اندروید ۱۰ به بعد میکروفون هنگام تماس برای برنامه‌های پس‌زمینه ساکت می‌شود و فقط یک سوی مکالمه (با بلندگو) ضبط می‌شود؛ ۳) شکننده و وابسته به برند است؛ ۴) پژوهش ما (`docs/research/call-recording-feasibility.md`) راهِ قابل‌اتکا را «ضبط‌کنندهٔ داخلیِ خودِ گوشی + خواندن فایل» می‌داند |
+| `SecureStore` (کلید API تبدیل به متن) | نیامد | دیگر کلیدی روی گوشی نیست؛ توکنِ دستگاه NM در پوشهٔ خصوصی برنامه است (`allowBackup=false`) |
+| تغییرات `gateway_engine.dart` (گیت‌وی OTP اختیاری `gatewayEnabled`، فایل `sent_ids`) | نیامد | گیت‌وی NM خودش قبل از ارسال شناسه را روی دیسک می‌نویسد و ارسال دوباره نمی‌کند؛ ولی `LockCoordinator` و آلارم زنده‌ماندن به آن اضافه شد |
+| `server_settings_sheet.dart` | نیامد | آدرس سرور هنگام جفت‌سازی با NM تعیین می‌شود |
+| لیستِ ضبط‌های محلیِ آن‌ها با جست‌وجو در متن (`recordings_tab`، `recording_detail_page`) | با نسخهٔ NM-محور عوض شد (`recordings_section.dart`، `recording_detail_page.dart`) | متن در NM است؛ فهرست وضعیتِ «ارسال/رضایت/متن آماده» را نشان می‌دهد |
+| کارِ emulator_smoke / job ِ شبیه‌ساز | نیامد | هنوز لازم نبود؛ گیرندهٔ `ARM_TEST` درون `WakeReceiver` هست (export نشده) برای آینده |
+
+## چیزهایی که برای NM اضافه شد (روی کدِ آن‌ها)
+
+* **لغو (opt-out) سراسری برای کمپین‌های محلی:** پاسخِ «لغو/stop» از هر شماره (چه ارسال پیامک‌های دریافتی به NM روشن باشد چه نه) به فهرست لغوِ محلی (`OptOutSource.reply`) می‌رود؛ و فهرستِ «دیگر پیام نده»ی سراسریِ NM هر ۱۰ دقیقه با `GET sms/optouts/` به همان فهرست می‌آید (`OptOutSource.nm`؛ اگر سرور این مسیر را ندارد بی‌صدا رد می‌شود؛ نگاه کنید به `docs/api-contract.md`). `campaign_runner` پیش‌تر هر شمارهٔ این فهرست را رد می‌کرد. با این، کمپین‌های محلیِ مخاطب‌ها هم هرگز به شمارهٔ لغوشده پیام نمی‌دهند.
+* **آلارم زنده‌ماندنِ گیت‌وی:** سرویس هر چند دقیقه یک آلارم ۲۰دقیقه‌ای را عقب می‌اندازد؛ اگر اندروید سرویس را بکشد آلارم می‌رسد و `WakeReceiver` سرویس را دوباره بالا می‌آورد.
+* **قفل CPU/Wi-Fi هماهنگ:** گیت‌وی هم از `LockCoordinator` استفاده می‌کند، تا قفلِ کمپین‌ها و قفلِ گیت‌وی همدیگر را رها نکنند.
