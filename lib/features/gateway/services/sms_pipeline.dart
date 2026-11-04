@@ -143,6 +143,9 @@ class SmsPipeline {
   Future<void> flushReports() async {
     final pending = await store.unreported();
     for (final r in pending) {
+      // phase=sending ⇒ نتیجهٔ ارسال نامعلوم است؛ هرگز «sent» گزارش نمی‌کنیم.
+      // سرور یا دوباره صف می‌کند (attempt بزرگ‌تر) یا با lease خودش تمامش می‌کند.
+      if (r.phase == ClaimPhase.sending) continue;
       if (!r.reported) {
         await _reportResult(r);
       }

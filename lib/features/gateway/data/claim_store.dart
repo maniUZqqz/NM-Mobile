@@ -113,7 +113,9 @@ class MemoryClaimStore implements ClaimStore {
   @override
   Future<void> prune({Duration keep = const Duration(days: 3)}) async {
     final limit = DateTime.now().subtract(keep).millisecondsSinceEpoch;
-    _m.removeWhere((_, r) => r.atMs < limit && r.reported);
+    _m.removeWhere(
+      (_, r) => r.atMs < limit && (r.reported || r.phase == ClaimPhase.sending),
+    );
   }
 }
 
@@ -182,7 +184,9 @@ class FileClaimStore implements ClaimStore {
     final m = await _load();
     final limit = DateTime.now().subtract(keep).millisecondsSinceEpoch;
     final before = m.length;
-    m.removeWhere((_, r) => r.atMs < limit && r.reported);
+    m.removeWhere(
+      (_, r) => r.atMs < limit && (r.reported || r.phase == ClaimPhase.sending),
+    );
     if (m.length != before) await _flush();
   }
 }
