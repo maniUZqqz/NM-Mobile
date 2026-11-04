@@ -36,7 +36,11 @@ class FakeHttp implements NmHttp {
     if (result is NmHttpException) throw result;
     if (result != null) return result;
     if (path == 'lookups/authorize/') {
-      return <String, dynamic>{'allowed': true, 'ticket': 't-${map['platform']}', 'method': 'webview'};
+      return <String, dynamic>{
+        'allowed': true,
+        'ticket': 't-${map['platform']}',
+        'method': map['platform'] == 'telegram' ? 'server' : 'webview',
+      };
     }
     return <String, dynamic>{'ok': true};
   }

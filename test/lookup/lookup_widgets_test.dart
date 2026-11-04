@@ -109,7 +109,10 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(host(MessengersScreen(facade: facade)));
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('fa'),
+      home: Directionality(textDirection: TextDirection.rtl, child: MessengersScreen(facade: facade)),
+    ));
     await tester.pumpAndSettle();
 
     expect(find.text('قوانین سرور: فقط شمارهٔ تماس‌های واقعی'), findsOneWidget);

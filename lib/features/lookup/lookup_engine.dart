@@ -1,7 +1,10 @@
 import 'dart:math';
 
+import 'adapter_runner.dart';
 import 'lookup_facade.dart';
 import 'lookup_messages.dart';
+import 'lookup_models.dart';
+import 'platforms.dart';
 
 typedef LookupDelay = Future<void> Function(Duration duration);
 
