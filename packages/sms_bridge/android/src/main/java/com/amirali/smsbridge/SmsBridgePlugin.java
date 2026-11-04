@@ -64,7 +64,6 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
     private static final String CHANNEL = "sms_bridge";
     private static final long SEND_TIMEOUT_MS = 60_000L;
     private static final int PICK_CONTACT_FILE_REQUEST = 7431;
-    private static final int PICK_RECORDINGS_FOLDER_REQUEST = 7432;
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(1);
     /** با هر فرایند تازه عوض می‌شود تا گزارش دیرهنگامِ فرایند قبلی با پیامک جدید اشتباه گرفته نشود. */
     private static final long PROCESS_STAMP = System.currentTimeMillis();
@@ -103,7 +102,6 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
     private ActivityPluginBinding activityBinding;
     private MethodChannel channel;
     private MethodChannel.Result pendingFileResult;
-    private MethodChannel.Result pendingFolderResult;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private PowerManager.WakeLock wakeLock;
@@ -160,10 +158,6 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
             pendingFileResult.error("NO_ACTIVITY", "صفحه انتخاب فایل بسته شد.", null);
             pendingFileResult = null;
         }
-        if (pendingFolderResult != null) {
-            pendingFolderResult.error("NO_ACTIVITY", "صفحه انتخاب پوشه بسته شد.", null);
-            pendingFolderResult = null;
-        }
     }
 
     @Override
@@ -191,13 +185,6 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 case "drainCallEvents":
                     result.success(Queues.drain(context, Queues.CALL_EVENTS));
                     break;
-                case "readCallLog": {
-                    Number since = call.argument("since");
-                    Integer limit = call.argument("limit");
-                    result.success(CallSupport.readCallLog(
-                            context, since == null ? 0L : since.longValue(), limit == null ? 100 : limit));
-                    break;
-                }
                 case "showCallNotification":
                     CallSupport.showCallNotification(context, str((CharSequence) call.argument("title")),
                             str((CharSequence) call.argument("text")));
@@ -207,39 +194,6 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
                     CallSupport.cancelCallNotification(context);
                     result.success(true);
                     break;
-                case "pickRecordingsFolder":
-                    pickRecordingsFolder(result);
-                    break;
-                case "listRecordings": {
-                    final String tree = call.argument("tree");
-                    Number since = call.argument("since");
-                    Integer max = call.argument("max");
-                    final long sinceMs = since == null ? 0L : since.longValue();
-                    final int maxFiles = max == null ? 300 : max;
-                    final MethodChannel.Result res = result;
-                    new Thread(() -> {
-                        final List<Map<String, Object>> list =
-                                CallSupport.listRecordings(context, tree == null ? "" : tree, sinceMs, maxFiles);
-                        mainHandler.post(() -> res.success(list));
-                    }, "nm-list-recordings").start();
-                    break;
-                }
-                case "copyToCache": {
-                    final String uri = call.argument("uri");
-                    final String name = call.argument("name");
-                    final MethodChannel.Result res = result;
-                    new Thread(() -> {
-                        final String path = CallSupport.copyToCache(context, uri == null ? "" : uri, name);
-                        mainHandler.post(() -> res.success(path));
-                    }, "nm-copy-recording").start();
-                    break;
-                }
-                case "deleteCacheFile": {
-                    String path = call.argument("path");
-                    if (path != null) CallSupport.deleteCacheFile(context, path);
-                    result.success(true);
-                    break;
-                }
                 case "isInstalled": {
                     String pkg = call.argument("package");
                     result.success(pkg != null && CallSupport.isInstalled(context, pkg));
@@ -396,50 +350,8 @@ public class SmsBridgePlugin implements FlutterPlugin, MethodChannel.MethodCallH
         }
     }
 
-    private void pickRecordingsFolder(MethodChannel.Result result) {
-        if (activity == null) {
-            result.error("NO_ACTIVITY", "برای انتخاب پوشه باید برنامه باز باشد.", null);
-            return;
-        }
-        if (pendingFolderResult != null) {
-            result.error("PICKER_BUSY", "یک انتخاب پوشه دیگر در حال انجام است.", null);
-            return;
-        }
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        pendingFolderResult = result;
-        try {
-            activity.startActivityForResult(intent, PICK_RECORDINGS_FOLDER_REQUEST);
-        } catch (Throwable error) {
-            pendingFolderResult = null;
-            result.error("PICKER_ERROR", error.toString(), null);
-        }
-    }
-
     @Override
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == PICK_RECORDINGS_FOLDER_REQUEST) {
-            final MethodChannel.Result folderResult = pendingFolderResult;
-            pendingFolderResult = null;
-            if (folderResult == null) return true;
-            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
-                folderResult.success(null);
-                return true;
-            }
-            Uri tree = data.getData();
-            try {
-                context.getContentResolver().takePersistableUriPermission(
-                        tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (Throwable ignored) {
-            }
-            Map<String, Object> picked = new HashMap<>();
-            picked.put("tree", tree.toString());
-            picked.put("name", str(tree.getLastPathSegment()));
-            folderResult.success(picked);
-            return true;
-        }
         if (requestCode != PICK_CONTACT_FILE_REQUEST) return false;
 
         final MethodChannel.Result result = pendingFileResult;

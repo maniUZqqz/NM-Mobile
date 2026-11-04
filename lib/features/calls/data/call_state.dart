@@ -81,47 +81,6 @@ class KnownCall {
   };
 }
 
-/// فایل ضبطی که به یک تماس وصل شده و منتظر ارسال به NM است.
-class PendingRecording {
-  PendingRecording({
-    required this.uri,
-    required this.name,
-    required this.modified,
-    required this.size,
-    required this.callUid,
-    required this.number,
-    this.note = '',
-  });
-
-  factory PendingRecording.fromJson(Map<String, dynamic> j) => PendingRecording(
-    uri: (j['uri'] ?? '').toString(),
-    name: (j['name'] ?? '').toString(),
-    modified: DateTime.tryParse((j['modified'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0),
-    size: (j['size'] as num?)?.toInt() ?? 0,
-    callUid: (j['callUid'] ?? '').toString(),
-    number: (j['number'] ?? '').toString(),
-    note: (j['note'] ?? '').toString(),
-  );
-
-  final String uri;
-  final String name;
-  final DateTime modified;
-  final int size;
-  final String callUid;
-  final String number;
-  String note;
-
-  Map<String, dynamic> toJson() => {
-    'uri': uri,
-    'name': name,
-    'modified': modified.toIso8601String(),
-    'size': size,
-    'callUid': callUid,
-    'number': number,
-    'note': note,
-  };
-}
-
 class CallState {
   CallState({
     this.active,
@@ -129,13 +88,8 @@ class CallState {
     this.lastLogSyncMs = 0,
     this.logDueAtMs = 0,
     this.nextTryMs = 0,
-    this.lastScanMs = 0,
     List<KnownCall>? recent,
-    List<PendingRecording>? pending,
-    Set<String>? uploaded,
-  }) : recent = recent ?? <KnownCall>[],
-       pending = pending ?? <PendingRecording>[],
-       uploaded = uploaded ?? <String>{};
+  }) : recent = recent ?? <KnownCall>[];
 
   factory CallState.fromJson(Map<String, dynamic> j) {
     final a = j['active'];
@@ -145,10 +99,7 @@ class CallState {
       lastLogSyncMs: (j['lastLogSyncMs'] as num?)?.toInt() ?? 0,
       logDueAtMs: (j['logDueAtMs'] as num?)?.toInt() ?? 0,
       nextTryMs: (j['nextTryMs'] as num?)?.toInt() ?? 0,
-      lastScanMs: (j['lastScanMs'] as num?)?.toInt() ?? 0,
       recent: mapList(j['recent']).map(KnownCall.fromJson).toList(),
-      pending: mapList(j['pending']).map(PendingRecording.fromJson).toList(),
-      uploaded: ((j['uploaded'] as List?) ?? const []).map((e) => e.toString()).toSet(),
     );
   }
 
@@ -159,10 +110,7 @@ class CallState {
 
   /// برای جلوگیری از فشار روی سرور پس از خطا
   int nextTryMs;
-  int lastScanMs;
   final List<KnownCall> recent;
-  final List<PendingRecording> pending;
-  final Set<String> uploaded;
 
   Map<String, dynamic> toJson() => {
     'active': active?.toJson(),
@@ -170,10 +118,7 @@ class CallState {
     'lastLogSyncMs': lastLogSyncMs,
     'logDueAtMs': logDueAtMs,
     'nextTryMs': nextTryMs,
-    'lastScanMs': lastScanMs,
     'recent': recent.map((e) => e.toJson()).toList(),
-    'pending': pending.map((e) => e.toJson()).toList(),
-    'uploaded': uploaded.toList(),
   };
 }
 
@@ -215,13 +160,6 @@ class FileCallStateStore implements CallStateStore {
   @override
   Future<void> save(CallState s) async {
     final f = await _file();
-    // فقط ۲۰۰ مورد آخرِ «آپلودشده» را نگه می‌داریم
-    final up = s.uploaded.toList();
-    if (up.length > 200) {
-      s.uploaded
-        ..clear()
-        ..addAll(up.sublist(up.length - 200));
-    }
     await writeAtomicFile(f, jsonEncode(s.toJson()));
   }
 }

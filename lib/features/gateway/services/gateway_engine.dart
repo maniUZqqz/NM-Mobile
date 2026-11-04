@@ -10,9 +10,9 @@ import 'package:nm_mobile/core/nm/nm_session.dart';
 import 'package:nm_mobile/core/storage/app_storage.dart';
 import 'package:nm_mobile/features/calls/data/call_state.dart';
 import 'package:nm_mobile/features/calls/data/calls_api.dart';
-import 'package:nm_mobile/features/calls/services/call_cycle.dart';
-import 'package:nm_mobile/features/calls/services/recording_cycle.dart';
-import 'package:nm_mobile/features/calls/services/recording_source.dart';
+import 'package:nm_mobile/features/calls/services/nm_call_cycle.dart';
+import 'package:nm_mobile/features/calls/services/nm_recording_gateway.dart';
+import 'package:nm_mobile/features/calls/services/recording_sync.dart';
 import 'package:nm_mobile/features/gateway/data/claim_store.dart';
 import 'package:nm_mobile/features/gateway/domain/sms_models.dart';
 import 'package:nm_mobile/features/gateway/services/incoming_uploader.dart';
@@ -67,10 +67,10 @@ class GatewayEngine {
   NmOptOutSync? _optOutSync;
   DateTime? _lastOptOutSync;
   DateTime? _lastKeepAlive;
-  CallCycle? _calls;
-  RecordingCycle? _rec;
+  NmCallCycle? _calls;
+  RecordingSync? _rec;
+  bool _scanSoon = false;
   final CallStateStore _callState = FileCallStateStore();
-  final CallSettingsStore _callSettings = CallSettingsStore();
   DateTime? _lastScan;
   NmSettings _settings = const NmSettings();
   ServerConfig _config = ServerConfig.defaults();
@@ -97,6 +97,11 @@ class GatewayEngine {
       _flows.clear();
     });
     service.on('sessionChanged').listen((_) => _reloadSession = true);
+    service.on('scanRecordings').listen((_) => _scanSoon = true);
+    // آلارم «بعد از پایان تماس» (WakeReceiver) ⇒ بلافاصله ضبط‌های تازه را بررسی کن
+    WakeHub.add((reason) {
+      if (reason == 'call_ended' || reason == 'calls') _scanSoon = true;
+    });
 
     // جلوگیری از خوابیدن CPU/Wi-Fi وقتی برنامه بسته است (از راه هماهنگ‌کننده تا با قفل‌های
     // کمپین‌ها یکدیگر را رها نکنند)
@@ -158,13 +163,14 @@ class GatewayEngine {
       upload: (path, {required fields, required filePath}) =>
           c.postMultipart(path, fields: fields, fileField: 'audio', filePath: filePath),
     );
-    _calls = CallCycle(
+    _calls = NmCallCycle(
       api: callsApi,
       store: _callState,
       drain: SmsBridge.drainCallEvents,
-      readLog: ({required since, required limit}) => SmsBridge.readCallLog(since: since, limit: limit),
+      readLog: ({required since, required limit}) =>
+          SmsBridge.queryCallLog(sinceMillis: since.millisecondsSinceEpoch, limit: limit),
     );
-    _rec = RecordingCycle(source: SafFolderSource(_callSettings), api: callsApi, store: _callState);
+    _rec = RecordingSync(gateway: CallsApiGateway(callsApi, _callState));
   }
 
   Future<SmsSendResult> _send({
@@ -547,31 +553,23 @@ class GatewayEngine {
       final rec = _rec;
       if (rec != null &&
           !ongoing &&
-          (_lastScan == null || now.difference(_lastScan!) > const Duration(seconds: 60))) {
+          (_scanSoon || _lastScan == null || now.difference(_lastScan!) > const Duration(seconds: 60))) {
         _lastScan = now;
-        final added = await rec.scan();
-        if (added > 0) {
+        _scanSoon = false;
+        final report = await rec.run();
+        final imported = report.scan?.imported ?? 0;
+        if (imported > 0) {
           _add(
             LogEntry(
               kind: LogKind.system,
               level: LogLevel.info,
               title: 'ضبط تماس تازه‌ای پیدا شد',
-              detail: '$added فایل در تب «تماس‌ها» منتظر ارسال به NM است.',
+              detail: '$imported فایل در تب «تماس‌ها ⇐ ضبط‌های گوشی» است؛ بدون رضایتِ ثبت‌شده به NM نمی‌رود.',
             ),
           );
         }
-        if ((await _callSettings.load()).autoUpload) {
-          final sent = await rec.autoUpload();
-          if (sent > 0) {
-            _add(
-              LogEntry(
-                kind: LogKind.system,
-                level: LogLevel.success,
-                title: 'ضبط تماس خودکار به NM فرستاده شد',
-                detail: '$sent فایل (رضایت ثبت‌شده داشتند).',
-              ),
-            );
-          }
+        if (report.processed > 0) {
+          service.invoke('recordingsChanged', {'processed': report.processed});
         }
       }
     } on NmHttpException {

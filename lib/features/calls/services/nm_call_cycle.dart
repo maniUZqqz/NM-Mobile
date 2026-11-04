@@ -2,19 +2,19 @@ import 'dart:math';
 
 import 'package:nm_mobile/features/calls/data/calls_api.dart';
 import 'package:nm_mobile/features/calls/data/call_state.dart';
-import 'package:nm_mobile/features/calls/domain/call_models.dart';
+import 'package:nm_mobile/features/calls/domain/nm_call_models.dart';
 import 'package:nm_mobile/features/lookup/lookup_facade.dart';
 import 'package:sms_bridge/sms_bridge.dart';
 
 typedef DrainCallEvents = Future<List<CallEvent>> Function();
-typedef ReadCallLog = Future<List<CallLogRow>> Function({required DateTime since, required int limit});
+typedef ReadCallLog = Future<List<RawCallLogEntry>> Function({required DateTime since, required int limit});
 
 /// منطق سرویس پس‌زمینه برای تماس‌ها (بدون وابستگی به UI و قابل تست):
 ///  ۱) رویدادهای زنگ/گرفتن/پایان را می‌خواند و تماس را فوراً در NM ثبت می‌کند (`calls/live/`)؛
 ///  ۲) بعد از پایان تماس (و هر ۱۰ دقیقه) لاگ تماس گوشی را به NM می‌فرستد (`calls/log/`).
 /// هیچ صدایی ضبط نمی‌شود.
-class CallCycle {
-  CallCycle({
+class NmCallCycle {
+  NmCallCycle({
     required this.api,
     required this.store,
     required this.drain,
@@ -128,12 +128,12 @@ class CallCycle {
     }
     final entries = rows
         .map(
-          (r) => CallLogEntry(
+          (r) => NmLogEntry(
             clientId: 'cl-${r.id}',
             number: r.number,
             direction: directionOfCallLogType(r.type),
-            startedAt: r.date,
-            durationS: r.duration,
+            startedAt: DateTime.fromMillisecondsSinceEpoch(r.startedAtMillis),
+            durationS: r.durationSeconds,
             contactName: r.name.isEmpty ? null : r.name,
           ),
         )
@@ -145,10 +145,10 @@ class CallCycle {
       }
       var newest = st.lastLogMs;
       for (final r in rows) {
-        newest = max(newest, r.date.millisecondsSinceEpoch);
+        newest = max(newest, r.startedAtMillis);
         final uid = byClient['cl-${r.id}'];
         if (uid != null && !st.recent.any((k) => k.uid == uid)) {
-          st.recent.add(KnownCall(uid: uid, number: r.number, startedAt: r.date, durationS: r.duration));
+          st.recent.add(KnownCall(uid: uid, number: r.number, startedAt: DateTime.fromMillisecondsSinceEpoch(r.startedAtMillis), durationS: r.durationSeconds));
         }
       }
       st.recent.sort((x, y) => y.startedAt.compareTo(x.startedAt));

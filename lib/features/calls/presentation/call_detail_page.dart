@@ -6,7 +6,7 @@ import 'package:nm_mobile/core/theme/app_theme.dart';
 import 'package:nm_mobile/features/assistant/assistant_models.dart';
 import 'package:nm_mobile/features/assistant/assistant_page.dart';
 import 'package:nm_mobile/features/calls/data/calls_api.dart';
-import 'package:nm_mobile/features/calls/domain/call_models.dart';
+import 'package:nm_mobile/features/calls/domain/nm_call_models.dart';
 import 'package:nm_mobile/features/calls/presentation/calls_tab.dart';
 import 'package:nm_mobile/features/lookup/lookup_facade.dart';
 
@@ -182,7 +182,7 @@ class _CallDetailPageState extends State<CallDetailPage> {
               Directionality(textDirection: TextDirection.ltr, child: Text(c.number, style: const TextStyle(color: AppColors.textSecondary))),
             const SizedBox(height: 4),
             Text(
-              '${callDirectionLabel(c.direction)} · ${callTimeText(c.startedAt)}'
+              '${nmDirectionLabel(c.direction)} · ${callTimeText(c.startedAt)}'
               '${c.durationS == null ? '' : ' · ${faDigits('${c.durationS}')} ثانیه'}',
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
             ),

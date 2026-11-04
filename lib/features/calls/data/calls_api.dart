@@ -1,5 +1,5 @@
 import 'package:nm_mobile/core/nm/json_util.dart';
-import 'package:nm_mobile/features/calls/domain/call_models.dart';
+import 'package:nm_mobile/features/calls/domain/nm_call_models.dart';
 import 'package:nm_mobile/features/lookup/lookup_facade.dart';
 
 /// آپلود فایل (در برنامه NmClient.postMultipart؛ در تست یک جعلی).
@@ -51,7 +51,7 @@ class CallsApi {
   }
 
   /// آپلود دستهٔ ردیف‌های لاگ تماس؛ برای هر client_id همان uid ِ NM برمی‌گردد.
-  Future<Map<String, String>> logCalls(List<CallLogEntry> rows) async {
+  Future<Map<String, String>> logCalls(List<NmLogEntry> rows) async {
     if (rows.isEmpty) return const <String, String>{};
     final data = await http.postJson('calls/log/', {
       'calls': rows.map((e) => e.toJson()).toList(),

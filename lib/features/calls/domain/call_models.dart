@@ -1,240 +1,327 @@
-import 'package:nm_mobile/core/nm/json_util.dart';
+import 'package:sms_bridge/sms_bridge.dart';
 
-/// وضعیت‌هایی که سرور برای یک تماس می‌دهد.
-const List<String> kCallStatuses = [
-  'LOGGED',
-  'NO_CONSENT',
-  'UPLOADED',
-  'TRANSCRIBING',
-  'TRANSCRIBED',
-  'ANALYSED',
-  'FAILED',
-];
+enum CallDirection { incoming, outgoing, missed, rejected, blocked, unknown }
 
-String callStatusLabel(String s) {
-  switch (s) {
-    case 'LOGGED':
-      return 'ثبت شد';
-    case 'NO_CONSENT':
-      return 'بدون رضایت ضبط';
-    case 'UPLOADED':
-      return 'ارسال شد';
-    case 'TRANSCRIBING':
-      return 'در حال تبدیل به متن';
-    case 'TRANSCRIBED':
-      return 'متن آماده است';
-    case 'ANALYSED':
-      return 'تحلیل شد';
-    case 'FAILED':
-      return 'خطا';
+/// مقدار `CallLog.Calls.TYPE` اندروید را به جهت تماس تبدیل می‌کند.
+CallDirection callDirectionFromAndroid(int type) {
+  switch (type) {
+    case 1: // INCOMING
+    case 4: // VOICEMAIL
+    case 7: // ANSWERED_EXTERNALLY
+      return CallDirection.incoming;
+    case 2: // OUTGOING
+      return CallDirection.outgoing;
+    case 3: // MISSED
+      return CallDirection.missed;
+    case 5: // REJECTED
+      return CallDirection.rejected;
+    case 6: // BLOCKED
+      return CallDirection.blocked;
     default:
-      return s.isEmpty ? 'نامشخص' : s;
+      return CallDirection.unknown;
   }
 }
 
-/// آیا پردازش سمت سرور هنوز ادامه دارد؟ (برای polling)
-bool callStatusInProgress(String s) => s == 'UPLOADED' || s == 'TRANSCRIBING' || s == 'TRANSCRIBED';
-
-String callDirectionLabel(String d) {
-  switch (d) {
-    case 'in':
+String callDirectionLabel(CallDirection direction) {
+  switch (direction) {
+    case CallDirection.incoming:
       return 'ورودی';
-    case 'out':
+    case CallDirection.outgoing:
       return 'خروجی';
-    case 'missed':
+    case CallDirection.missed:
       return 'بی‌پاسخ';
-    case 'rejected':
+    case CallDirection.rejected:
       return 'ردشده';
-    default:
-      return d;
+    case CallDirection.blocked:
+      return 'مسدود';
+    case CallDirection.unknown:
+      return 'نامشخص';
   }
 }
 
-class CallSegment {
-  const CallSegment({required this.start, required this.end, required this.text});
-
-  factory CallSegment.fromJson(Map<String, dynamic> j) => CallSegment(
-    start: asDoubleN(j['start']) ?? 0,
-    end: asDoubleN(j['end']) ?? 0,
-    text: asStr(j['text']),
-  );
-
-  final double start;
-  final double end;
-  final String text;
-}
-
-/// یک تماس در NM (فهرست یا جزئیات).
-class NmCall {
-  const NmCall({
-    required this.uid,
-    required this.number,
-    required this.normalized,
-    required this.direction,
-    this.startedAt,
-    this.durationS,
-    this.contactName,
-    this.callerDisplay,
-    this.callerKnown = false,
-    required this.status,
-    this.hasAudio = false,
-    this.error = '',
-    this.transcript = '',
-    this.segments = const <CallSegment>[],
-    this.asrEngine = '',
-    this.summary = '',
-    this.sentiment = '',
-    this.objections = const <String>[],
-    this.commitments = const <String>[],
-    this.nextSteps = const <String>[],
-  });
-
-  factory NmCall.fromJson(Map<String, dynamic> j) {
-    final caller = asMap(j['caller']);
-    List<String> strings(dynamic v) =>
-        asList(v).map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
-    return NmCall(
-      uid: asStr(j['uid']),
-      number: asStr(j['number']),
-      normalized: asStr(j['normalized']),
-      direction: asStr(j['direction']),
-      startedAt: asDate(j['started_at']),
-      durationS: asIntN(j['duration_s']),
-      contactName: asStrN(j['contact_name']),
-      callerDisplay: asStrN(caller['display']),
-      callerKnown: asBool(caller['known']),
-      status: asStr(j['status'], 'LOGGED'),
-      hasAudio: asBool(j['has_audio']),
-      error: asStr(j['error']),
-      transcript: asStr(j['transcript']),
-      segments: asList(j['segments']).whereType<Map>().map((e) => CallSegment.fromJson(asMap(e))).toList(),
-      asrEngine: asStr(j['asr_engine']),
-      summary: asStr(j['summary']),
-      sentiment: asStr(j['sentiment']),
-      objections: strings(j['objections']),
-      commitments: strings(j['commitments']),
-      nextSteps: strings(j['next_steps']),
-    );
-  }
-
-  final String uid;
-  final String number;
-  final String normalized;
-  final String direction;
-  final DateTime? startedAt;
-  final int? durationS;
-  final String? contactName;
-  final String? callerDisplay;
-  final bool callerKnown;
-  final String status;
-  final bool hasAudio;
-  final String error;
-  final String transcript;
-  final List<CallSegment> segments;
-  final String asrEngine;
-  final String summary;
-  final String sentiment;
-  final List<String> objections;
-  final List<String> commitments;
-  final List<String> nextSteps;
-
-  /// نامی که باید نشان داد: ابتدا آنچه NM می‌شناسد، بعد نامِ مخاطبِ گوشی.
-  String? get displayName => callerDisplay ?? contactName;
-}
-
-/// رضایتِ ضبطِ یک شماره.
-class ConsentInfo {
-  const ConsentInfo({
-    required this.number,
-    required this.normalized,
-    required this.granted,
-    this.how,
-    this.obtainedAt,
-    this.source,
-  });
-
-  factory ConsentInfo.fromJson(Map<String, dynamic> j) => ConsentInfo(
-    number: asStr(j['number']),
-    normalized: asStr(j['normalized']),
-    granted: asBool(j['granted']),
-    how: asStrN(j['how']),
-    obtainedAt: asDate(j['obtained_at']),
-    source: asStrN(j['source']),
-  );
-
-  final String number;
-  final String normalized;
-  final bool granted;
-  final String? how;
-  final DateTime? obtainedAt;
-  final String? source;
-}
-
-class LiveCall {
-  const LiveCall({
-    required this.uid,
-    required this.normalized,
-    this.display,
-    this.known = false,
-  });
-
-  factory LiveCall.fromJson(Map<String, dynamic> j) {
-    final caller = asMap(j['caller']);
-    return LiveCall(
-      uid: asStr(j['uid']),
-      normalized: asStr(j['normalized']),
-      display: asStrN(caller['display']),
-      known: asBool(caller['known']),
-    );
-  }
-
-  final String uid;
-  final String normalized;
-  final String? display;
-  final bool known;
-}
-
-/// یک ردیف لاگ تماس که به NM فرستاده می‌شود.
+/// یک تماس از تاریخچه‌ی گوشی.
 class CallLogEntry {
   const CallLogEntry({
-    required this.clientId,
+    required this.id,
     required this.number,
-    required this.direction,
+    required this.name,
     required this.startedAt,
-    required this.durationS,
-    this.contactName,
+    required this.duration,
+    required this.direction,
   });
 
-  final String clientId;
+  final int id;
   final String number;
-  final String direction;
+  final String name;
   final DateTime startedAt;
-  final int durationS;
-  final String? contactName;
+  final Duration duration;
+  final CallDirection direction;
 
-  Map<String, dynamic> toJson() => {
-    'client_id': clientId,
-    'number': number,
-    'direction': direction,
-    'started_at': startedAt.toUtc().toIso8601String(),
-    'duration_s': durationS,
-    'contact_name': contactName,
-  };
+  DateTime get endedAt => startedAt.add(duration);
+
+  factory CallLogEntry.fromRaw(RawCallLogEntry raw) => CallLogEntry(
+    id: raw.id,
+    number: raw.number,
+    name: raw.name,
+    startedAt: DateTime.fromMillisecondsSinceEpoch(raw.startedAtMillis),
+    duration: Duration(seconds: raw.durationSeconds),
+    direction: callDirectionFromAndroid(raw.type),
+  );
 }
 
-/// نوع تماسِ لاگ اندروید ⇐ جهتِ قرارداد API.
-String directionOfCallLogType(int type) {
-  switch (type) {
-    case 1:
-      return 'in';
-    case 2:
-      return 'out';
-    case 3:
-      return 'missed';
-    case 5:
-    case 6:
-      return 'rejected';
-    default:
-      return 'in';
+enum RecordingSource {
+  /// ضبط‌کننده‌ی خودِ گوشی/شماره‌گیر (پوشه‌ی ضبط تماس)
+  phoneRecorder,
+
+  /// (در NM-Mobile استفاده نمی‌شود: ضبط‌کنندهٔ داخلیِ دسترس‌پذیری نیامد؛ فقط برای خواندنِ داده‌های
+  /// قدیمی نگه داشته شده)
+  inApp,
+
+  /// فایل صوتی که کاربر دستی اضافه کرد یا ضبط دستی
+  manual,
+}
+
+/// وضعیتِ ضبط در مسیر «ارسال به NM ⇐ تبدیل به متن و تحلیل در سرور».
+/// none: ارسال نشده · queued: در صف ارسال · running: ارسال شد و سرور در حال پردازش است ·
+/// done: متن و یادداشت در NM آماده است · failed: خطا
+enum TranscriptStatus { none, queued, running, done, failed }
+
+String transcriptStatusLabel(TranscriptStatus status) {
+  switch (status) {
+    case TranscriptStatus.none:
+      return 'ارسال نشده';
+    case TranscriptStatus.queued:
+      return 'در صف ارسال به NM';
+    case TranscriptStatus.running:
+      return 'NM در حال تبدیل به متن…';
+    case TranscriptStatus.done:
+      return 'متن و تحلیل در NM آماده است';
+    case TranscriptStatus.failed:
+      return 'ارسال ناموفق';
+  }
+}
+
+/// یک ضبط تماس ذخیره‌شده در برنامه.
+class CallRecording {
+  const CallRecording({
+    required this.id,
+    required this.audioPath,
+    required this.sourceKey,
+    required this.source,
+    required this.recordedAt,
+    required this.importedAt,
+    this.displayName = '',
+    this.brand = '',
+    this.mime = '',
+    this.sizeBytes = 0,
+    this.durationMs = 0,
+    this.number = '',
+    this.contactName = '',
+    this.direction = CallDirection.unknown,
+    this.callStartedAt,
+    this.callDuration,
+    this.linked = false,
+    this.transcriptStatus = TranscriptStatus.none,
+    this.transcriptError = '',
+    this.transcribedAt,
+    this.transcriptProvider = '',
+    this.attempts = 0,
+    this.nextAttemptAt,
+    this.uploadedAt,
+    this.permanentFailure = false,
+    this.nmCallUid = '',
+    this.needsConsent = false,
+  });
+
+  final String id;
+
+  /// مسیر نسخه‌ی داخلی برنامه (خالی = فایل صوتی حذف شده و فقط متن مانده)
+  final String audioPath;
+
+  /// کلید یکتای منبع برای جلوگیری از واردکردن دوباره (مثلاً `ms:123`).
+  final String sourceKey;
+  final RecordingSource source;
+  final DateTime recordedAt;
+  final DateTime importedAt;
+  final String displayName;
+  final String brand;
+  final String mime;
+  final int sizeBytes;
+  final int durationMs;
+  final String number;
+  final String contactName;
+  final CallDirection direction;
+  final DateTime? callStartedAt;
+  final Duration? callDuration;
+
+  /// به یک ردیف تاریخچه‌ی تماس وصل شده؟
+  final bool linked;
+  final TranscriptStatus transcriptStatus;
+  final String transcriptError;
+  final DateTime? transcribedAt;
+  final String transcriptProvider;
+  final int attempts;
+  final DateTime? nextAttemptAt;
+  final DateTime? uploadedAt;
+
+  /// خطای دائمی (مثلاً کلید اشتباه): تا دخالت کاربر دوباره تلاش نمی‌شود.
+  final bool permanentFailure;
+
+  /// شناسهٔ همین تماس در NM (بعد از وصل شدن به لاگِ ثبت‌شده در NM).
+  final String nmCallUid;
+
+  /// رضایتِ ضبطِ این شماره در NM ثبت نیست؛ فایل **ارسال نمی‌شود** تا کاربر تأیید کند.
+  final bool needsConsent;
+
+  bool get hasAudio => audioPath.isNotEmpty;
+
+  /// زمان تماس برای نمایش: شروع تماس اگر معلوم است، وگرنه زمان ضبط.
+  DateTime get when => callStartedAt ?? recordedAt;
+
+  String get title {
+    if (contactName.trim().isNotEmpty) return contactName.trim();
+    if (number.trim().isNotEmpty) return number.trim();
+    return 'تماس ناشناس';
+  }
+
+  CallRecording copyWith({
+    String? audioPath,
+    String? number,
+    String? contactName,
+    CallDirection? direction,
+    DateTime? callStartedAt,
+    Duration? callDuration,
+    bool? linked,
+    int? durationMs,
+    TranscriptStatus? transcriptStatus,
+    String? transcriptError,
+    DateTime? transcribedAt,
+    String? transcriptProvider,
+    int? attempts,
+    DateTime? nextAttemptAt,
+    bool clearNextAttempt = false,
+    DateTime? uploadedAt,
+    bool? permanentFailure,
+    String? nmCallUid,
+    bool? needsConsent,
+  }) {
+    return CallRecording(
+      id: id,
+      audioPath: audioPath ?? this.audioPath,
+      sourceKey: sourceKey,
+      source: source,
+      recordedAt: recordedAt,
+      importedAt: importedAt,
+      displayName: displayName,
+      brand: brand,
+      mime: mime,
+      sizeBytes: sizeBytes,
+      durationMs: durationMs ?? this.durationMs,
+      number: number ?? this.number,
+      contactName: contactName ?? this.contactName,
+      direction: direction ?? this.direction,
+      callStartedAt: callStartedAt ?? this.callStartedAt,
+      callDuration: callDuration ?? this.callDuration,
+      linked: linked ?? this.linked,
+      transcriptStatus: transcriptStatus ?? this.transcriptStatus,
+      transcriptError: transcriptError ?? this.transcriptError,
+      transcribedAt: transcribedAt ?? this.transcribedAt,
+      transcriptProvider: transcriptProvider ?? this.transcriptProvider,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAt: clearNextAttempt
+          ? null
+          : (nextAttemptAt ?? this.nextAttemptAt),
+      uploadedAt: uploadedAt ?? this.uploadedAt,
+      permanentFailure: permanentFailure ?? this.permanentFailure,
+      nmCallUid: nmCallUid ?? this.nmCallUid,
+      needsConsent: needsConsent ?? this.needsConsent,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'audioPath': audioPath,
+    'sourceKey': sourceKey,
+    'source': source.name,
+    'recordedAt': recordedAt.millisecondsSinceEpoch,
+    'importedAt': importedAt.millisecondsSinceEpoch,
+    'displayName': displayName,
+    'brand': brand,
+    'mime': mime,
+    'sizeBytes': sizeBytes,
+    'durationMs': durationMs,
+    'number': number,
+    'contactName': contactName,
+    'direction': direction.name,
+    if (callStartedAt != null)
+      'callStartedAt': callStartedAt!.millisecondsSinceEpoch,
+    if (callDuration != null) 'callDurationSec': callDuration!.inSeconds,
+    'linked': linked,
+    'transcriptStatus': transcriptStatus.name,
+    'transcriptError': transcriptError,
+    if (transcribedAt != null)
+      'transcribedAt': transcribedAt!.millisecondsSinceEpoch,
+    'transcriptProvider': transcriptProvider,
+    'attempts': attempts,
+    if (nextAttemptAt != null)
+      'nextAttemptAt': nextAttemptAt!.millisecondsSinceEpoch,
+    if (uploadedAt != null) 'uploadedAt': uploadedAt!.millisecondsSinceEpoch,
+    'permanentFailure': permanentFailure,
+    'nmCallUid': nmCallUid,
+    'needsConsent': needsConsent,
+  };
+
+  factory CallRecording.fromJson(Map<String, dynamic> json) {
+    DateTime? at(dynamic v) =>
+        v is num && v > 0 ? DateTime.fromMillisecondsSinceEpoch(v.toInt()) : null;
+    T pick<T extends Enum>(List<T> values, dynamic name, T fallback) {
+      for (final value in values) {
+        if (value.name == name) return value;
+      }
+      return fallback;
+    }
+
+    final durationSec = json['callDurationSec'];
+    return CallRecording(
+      id: (json['id'] ?? '').toString(),
+      audioPath: (json['audioPath'] ?? '').toString(),
+      sourceKey: (json['sourceKey'] ?? '').toString(),
+      source: pick(
+        RecordingSource.values,
+        json['source'],
+        RecordingSource.manual,
+      ),
+      recordedAt: at(json['recordedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      importedAt: at(json['importedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      displayName: (json['displayName'] ?? '').toString(),
+      brand: (json['brand'] ?? '').toString(),
+      mime: (json['mime'] ?? '').toString(),
+      sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
+      durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
+      number: (json['number'] ?? '').toString(),
+      contactName: (json['contactName'] ?? '').toString(),
+      direction: pick(
+        CallDirection.values,
+        json['direction'],
+        CallDirection.unknown,
+      ),
+      callStartedAt: at(json['callStartedAt']),
+      callDuration: durationSec is num ? Duration(seconds: durationSec.toInt()) : null,
+      linked: json['linked'] == true,
+      transcriptStatus: pick(
+        TranscriptStatus.values,
+        json['transcriptStatus'],
+        TranscriptStatus.none,
+      ),
+      transcriptError: (json['transcriptError'] ?? '').toString(),
+      transcribedAt: at(json['transcribedAt']),
+      transcriptProvider: (json['transcriptProvider'] ?? '').toString(),
+      attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+      nextAttemptAt: at(json['nextAttemptAt']),
+      uploadedAt: at(json['uploadedAt']),
+      permanentFailure: json['permanentFailure'] == true,
+      nmCallUid: (json['nmCallUid'] ?? '').toString(),
+      needsConsent: json['needsConsent'] == true,
+    );
   }
 }

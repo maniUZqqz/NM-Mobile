@@ -70,6 +70,9 @@ public class PhoneCallReceiver extends BroadcastReceiver {
                     if (!TelephonyManager.EXTRA_STATE_IDLE.equals(lastState)) {
                         emit(context, "ended", incoming ? "in" : "out");
                         CallSupport.cancelCallNotification(context);
+                        // چند ثانیه بعد از پایان تماس: ثبت لاگ تماس و پیدا کردن فایل ضبط (حتی اگر سرویس خواب باشد)
+                        WakeScheduler.arm(context.getApplicationContext(), "call_ended",
+                                System.currentTimeMillis() + 15_000L, "call_ended");
                     }
                     lastNumber = "";
                     lastEmittedNumber = null;
