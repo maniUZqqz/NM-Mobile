@@ -323,3 +323,18 @@ FloodWait — message in Persian).
 ### GET lookups/latest/?number=      newest profile per platform: `{"number","normalized","profiles":[<profile object>]}`
 ### GET lookups/<uid>/avatar/        image bytes (device token or staff JWT)
 `callerid/` additionally returns `"profiles": [<profile object>]` (latest per platform).
+
+---
+## Opt-out list for the phone's LOCAL campaigns (optional endpoint, added in phase 1b)
+
+The app's own contact campaigns (local feature of the original app) must never message a number that
+opted out. The phone remembers numbers that replied STOP/لغو by itself; to also honour NM's GLOBAL list it
+pulls it:
+
+### GET sms/optouts/?since=<iso>&limit=500   (device token)
+```
+{ "numbers": ["989121234567", "989351111111"], "next_since": "2026-11-04T11:00:00Z", "has_more": false }
+```
+`numbers` are normalised digits (with country code) of the global opt-out list, oldest first; `next_since`
+is the cursor to send as `since` next time (the app stores it). If the server does not have this endpoint
+(404/405) the app silently skips it. Poll interval: every 10 minutes.

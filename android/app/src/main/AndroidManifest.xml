@@ -11,6 +11,16 @@
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <!-- تماس‌ها: شماره‌ی تماس‌گیرنده هنگام زنگ، و ثبت تماس‌ها در NM -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- فایل‌های صوتیِ ضبط‌کنندهٔ داخلیِ گوشی (MediaStore) — میکروفون و دسترس‌پذیری لازم نیست -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- زمان‌بندی دقیق (آلارم) برای زنده‌ماندن سرویس و کمپین‌های زمان‌بندی‌شده -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
     <!-- شماره‌ی تماسِ خروجی هنگام گرفتن (ممکن است در بعضی نسخه‌های اندروید کار نکند) -->
     <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
     <!-- نمایش دستیار تماس روی صفحه هنگام زنگ -->
@@ -39,6 +49,7 @@
         android:label="NM Mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
         android:usesCleartextTraffic="true">
 
         <activity

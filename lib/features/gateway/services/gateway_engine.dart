@@ -19,6 +19,9 @@ import 'package:nm_mobile/features/gateway/services/incoming_uploader.dart';
 import 'package:nm_mobile/features/gateway/services/sms_pipeline.dart';
 import 'package:nm_mobile/features/logs/data/log_storage.dart';
 import 'package:nm_mobile/features/logs/domain/log_entry.dart';
+import 'package:nm_mobile/features/optout/nm_optout_sync.dart';
+import 'package:nm_mobile/features/optout/optout.dart';
+import 'package:nm_mobile/services/lock_coordinator.dart';
 import 'package:nm_mobile/features/lookup/lookup_facade.dart';
 import 'package:nm_mobile/features/settings/domain/server_config.dart';
 import 'package:sms_bridge/sms_bridge.dart';
@@ -61,6 +64,9 @@ class GatewayEngine {
   NmClient? _client;
   SmsPipeline? _pipeline;
   IncomingUploader? _uploader;
+  NmOptOutSync? _optOutSync;
+  DateTime? _lastOptOutSync;
+  DateTime? _lastKeepAlive;
   CallCycle? _calls;
   RecordingCycle? _rec;
   final CallStateStore _callState = FileCallStateStore();
@@ -92,8 +98,9 @@ class GatewayEngine {
     });
     service.on('sessionChanged').listen((_) => _reloadSession = true);
 
-    // جلوگیری از خوابیدن CPU/Wi-Fi وقتی برنامه بسته است
-    unawaited(SmsBridge.acquireLocks());
+    // جلوگیری از خوابیدن CPU/Wi-Fi وقتی برنامه بسته است (از راه هماهنگ‌کننده تا با قفل‌های
+    // کمپین‌ها یکدیگر را رها نکنند)
+    unawaited(LockCoordinator.acquire('gateway', needsWifi: true));
 
     _config = await ConfigStorage.load();
     await _loadSession();
@@ -130,6 +137,7 @@ class GatewayEngine {
       _client = null;
       _pipeline = null;
       _uploader = null;
+      _optOutSync = null;
       _calls = null;
       _rec = null;
       return;
@@ -143,7 +151,8 @@ class GatewayEngine {
       pickSub: _pickSub,
       onEvent: _onPipelineEvent,
     );
-    _uploader = IncomingUploader(http: c, store: _pending);
+    _uploader = IncomingUploader(http: c, store: _pending, onStop: _rememberStop);
+    _optOutSync = NmOptOutSync(http: c, cursor: FileOptOutCursor());
     final callsApi = CallsApi(
       c,
       upload: (path, {required fields, required filePath}) =>
@@ -366,7 +375,8 @@ class GatewayEngine {
     );
 
     await LogStorage.flush(_logs);
-    await SmsBridge.releaseLocks();
+    await LockCoordinator.release('gateway');
+    unawaited(SmsBridge.cancelWake(slot: 'gateway'));
     await Future<void>.delayed(const Duration(milliseconds: 250));
     service.stopSelf();
   }
@@ -444,7 +454,9 @@ class GatewayEngine {
     try {
       await _heartbeatIfDue(c);
       await _nativeQueues(p);
+      await _optOutStep();
       await _callsStep();
+      await _keepAlive();
       final res = await p.tick(
         max: _settings.claimBatch,
         simSlot: _config.simSlot >= 0 ? _config.simSlot : null,
@@ -601,6 +613,64 @@ class GatewayEngine {
     if (deliveries.isNotEmpty) await p.handleDelivery(deliveries);
   }
 
+  /// کسی «لغو/stop» جواب داد: به فهرست لغوِ محلیِ گوشی هم می‌رود تا کمپین‌های محلیِ
+  /// مخاطب‌ها دیگر به او پیام ندهند (NM هم همین را برای صف خودش انجام می‌دهد).
+  Future<void> _rememberStop(IncomingSms sms) async {
+    if (sms.from.trim().isEmpty) return;
+    final added = await OptOutStorage.add(
+      OptOutEntry.create(phone: sms.from, source: OptOutSource.reply, at: sms.at),
+    );
+    if (added) {
+      _add(
+        LogEntry(
+          kind: LogKind.system,
+          level: LogLevel.info,
+          title: 'درخواست «لغو» از ${sms.from}',
+          detail: 'به فهرست «دیگر پیام نده»ی این گوشی اضافه شد.',
+        ),
+      );
+    }
+  }
+
+  /// فهرست «دیگر پیام نده»ی NM را هر ۱۰ دقیقه به فهرست محلی می‌آورد.
+  Future<void> _optOutStep() async {
+    final sync = _optOutSync;
+    if (sync == null || sync.unsupported) return;
+    final now = DateTime.now();
+    final last = _lastOptOutSync;
+    if (last != null && now.difference(last) < const Duration(minutes: 10)) return;
+    _lastOptOutSync = now;
+    try {
+      final added = await sync.sync();
+      if (added > 0) {
+        _add(
+          LogEntry(
+            kind: LogKind.system,
+            level: LogLevel.info,
+            title: 'فهرست «دیگر پیام نده» NM به‌روز شد',
+            detail: '$added شمارهٔ تازه به فهرست لغوِ این گوشی آمد.',
+          ),
+        );
+      }
+    } on NmHttpException {
+      rethrow;
+    } catch (_) {}
+  }
+
+  /// آلارم «زنده‌ماندن»: تا وقتی سرویس زنده است هر چند دقیقه عقب‌تر می‌افتد و هرگز
+  /// نمی‌رسد؛ اگر اندروید سرویس را بکشد، همین آلارم (WakeReceiver) آن را دوباره بالا می‌آورد.
+  Future<void> _keepAlive() async {
+    final now = DateTime.now();
+    final last = _lastKeepAlive;
+    if (last != null && now.difference(last) < const Duration(minutes: 5)) return;
+    _lastKeepAlive = now;
+    await SmsBridge.scheduleWake(
+      now.add(const Duration(minutes: 20)),
+      reason: 'gateway_keepalive',
+      slot: 'gateway',
+    );
+  }
+
   // ── وضعیت اتصال ─────────────────────────────────────────────────────────────
 
   void _onConnected() {
@@ -643,6 +713,7 @@ class GatewayEngine {
       _client = null;
       _pipeline = null;
       _uploader = null;
+      _optOutSync = null;
       _calls = null;
       _rec = null;
       service.invoke('sessionRevoked');

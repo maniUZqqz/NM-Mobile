@@ -17,7 +17,10 @@ import 'package:nm_mobile/features/home/presentation/pages/dashboard_tab.dart';
 import 'package:nm_mobile/features/home/presentation/pages/settings_tab.dart';
 import 'package:nm_mobile/features/logs/data/log_storage.dart';
 import 'package:nm_mobile/features/logs/domain/log_entry.dart';
+import 'package:nm_mobile/features/optout/optout_page.dart';
+import 'package:nm_mobile/features/settings/domain/send_settings.dart';
 import 'package:nm_mobile/features/settings/domain/server_config.dart';
+import 'package:nm_mobile/features/settings/presentation/send_settings_sheet.dart';
 import 'package:nm_mobile/features/settings/presentation/permissions_sheet.dart';
 import 'package:nm_mobile/features/settings/presentation/sms_settings_sheet.dart';
 
@@ -542,6 +545,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _applyConfig(result, 'تنظیمات پیامک ذخیره شد');
   }
 
+  Future<void> _openSendSettings() async {
+    final current = await SendSettingsStorage.load();
+    if (!mounted) return;
+    final result = await showModalBottomSheet<SendSettings>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SendSettingsSheet(initial: current),
+    );
+    if (result == null || !mounted) return;
+    await SendSettingsStorage.save(result);
+    FlutterBackgroundService().invoke('reloadSendSettings');
+    _snack('تنظیمات احتیاط در ارسال ذخیره شد');
+  }
+
+  Future<void> _openOptOut() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const OptOutPage()),
+    );
+  }
+
   Future<void> _openPermissionsSheet() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -782,6 +810,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onOpenPermissions: _openPermissionsSheet,
             onStart: _startFromUi,
             onStop: _stopService,
+            onOpenSendSettings: _openSendSettings,
+            onOpenOptOut: _openOptOut,
           ),
         ],
       ),

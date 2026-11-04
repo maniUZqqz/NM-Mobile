@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sms_bridge/sms_bridge.dart';
 import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/features/settings/presentation/scheduler_health_card.dart';
 import 'package:nm_mobile/features/settings/presentation/widgets/sheet_header.dart';
 
 class _PermItem {
@@ -189,6 +190,7 @@ class _PermissionsSheetState extends State<PermissionsSheet>
                   'حالت پرواز روشن است؛ تا خاموش نشود پیامکی ارسال نمی‌شود.',
                 ),
               for (final it in items) _tile(theme, it),
+              SchedulerHealthCard(status: _s),
               if (!_s.sendSms) ...[
                 const SizedBox(height: 4),
                 _note(

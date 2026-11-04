@@ -5,7 +5,9 @@ import 'package:nm_mobile/core/storage/app_storage.dart';
 import 'package:nm_mobile/core/storage/file_mutex.dart';
 import 'package:nm_mobile/features/contacts/domain/contact.dart';
 
-enum OptOutSource { manual, contact, import }
+/// manual: دستی · contact/import: از مخاطب‌ها · reply: خودِ شخص «لغو/stop» جواب داد ·
+/// nm: از فهرست «دیگر پیام نده»ی سراسریِ NM
+enum OptOutSource { manual, contact, import, reply, nm }
 
 /// یک شماره‌ی «لغو شده»: به این شماره دیگر هیچ پیامک کمپینی ارسال نمی‌شود.
 class OptOutEntry {

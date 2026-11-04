@@ -83,10 +83,14 @@ String incomingClientId(String from, int atMs, String body) {
 /// قانون حریم خصوصی: پیامک‌های دریافتی **فقط** وقتی به NM می‌روند که
 /// «ارسال پیامک‌های دریافتی» در NM روشن باشد، یا متن «لغو/stop» باشد.
 class IncomingUploader {
-  IncomingUploader({required this.http, required this.store});
+  IncomingUploader({required this.http, required this.store, this.onStop});
 
   final NmHttp http;
   final PendingIncomingStore store;
+
+  /// برای هر پیامکِ دریافتیِ «لغو/stop» (چه ارسال به NM روشن باشد چه نه) صدا زده می‌شود تا
+  /// فرستنده در فهرست لغوِ محلیِ گوشی هم بیاید و کمپین‌های محلی دیگر به او پیام ندهند.
+  final Future<void> Function(IncomingSms sms)? onStop;
 
   static bool shouldUpload(String body, {required bool forward}) =>
       forward || isStopWord(body);
@@ -98,6 +102,14 @@ class IncomingUploader {
     var skipped = 0;
     final batch = await store.load();
     for (final m in fresh) {
+      if (isStopWord(m.body)) {
+        final cb = onStop;
+        if (cb != null) {
+          try {
+            await cb(m);
+          } catch (_) {}
+        }
+      }
       if (!shouldUpload(m.body, forward: forward)) {
         skipped++;
         continue;
