@@ -291,11 +291,22 @@ class _AvatarState extends State<_Avatar> {
   @override
   void initState() {
     super.initState();
-    final h = widget.http;
     final path = widget.path;
-    if (path != null && path.isNotEmpty && h is NmBinaryHttp) {
-      _future = (h as NmBinaryHttp).getBytes(path);
+    if (path != null && path.isNotEmpty) _future = _fetch(widget.http, path);
+  }
+
+  /// Photos need the device token, so they come from the NM client. Works with a client that
+  /// implements [NmBinaryHttp] or simply has a `getBytes(path)` method (the core NmClient does).
+  static Future<Uint8List>? _fetch(NmHttp http, String path) {
+    try {
+      if (http is NmBinaryHttp) return (http as NmBinaryHttp).getBytes(path);
+      final dynamic d = http;
+      final result = d.getBytes(path);
+      if (result is Future<Uint8List>) return result;
+    } catch (_) {
+      // no photo support in this client: initials are drawn
     }
+    return null;
   }
 
   @override
