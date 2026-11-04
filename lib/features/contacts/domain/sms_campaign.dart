@@ -1,4 +1,4 @@
-import 'package:untitled3/features/contacts/domain/contact.dart';
+import 'package:nm_mobile/features/contacts/domain/contact.dart';
 
 enum CampaignState {
   queued,

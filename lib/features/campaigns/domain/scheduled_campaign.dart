@@ -1,5 +1,5 @@
-import 'package:untitled3/core/utils/persian_date.dart';
-import 'package:untitled3/features/contacts/domain/sms_campaign.dart';
+import 'package:nm_mobile/core/utils/persian_date.dart';
+import 'package:nm_mobile/features/contacts/domain/sms_campaign.dart';
 
 enum CampaignAudience { allAtStart, selected }
 

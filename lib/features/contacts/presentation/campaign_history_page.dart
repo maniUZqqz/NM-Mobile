@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:untitled3/core/theme/app_theme.dart';
-import 'package:untitled3/core/utils/persian_date.dart';
-import 'package:untitled3/features/contacts/data/campaign_storage.dart';
-import 'package:untitled3/features/contacts/domain/sms_campaign.dart';
+import 'package:nm_mobile/core/theme/app_theme.dart';
+import 'package:nm_mobile/core/utils/persian_date.dart';
+import 'package:nm_mobile/features/contacts/data/campaign_storage.dart';
+import 'package:nm_mobile/features/contacts/domain/sms_campaign.dart';
 
 class CampaignHistoryPage extends StatefulWidget {
   const CampaignHistoryPage({super.key});

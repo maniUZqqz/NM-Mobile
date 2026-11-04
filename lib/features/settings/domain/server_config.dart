@@ -1,5 +1,5 @@
 import 'package:sms_bridge/sms_bridge.dart';
-import 'package:untitled3/core/constants/app_constants.dart';
+import 'package:nm_mobile/core/constants/app_constants.dart';
 
 class ServerConfig {
   String baseUrl;
